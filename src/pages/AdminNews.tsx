@@ -61,16 +61,16 @@ export default function AdminNews() {
 
   return (
     <Layout isAdmin>
-      <header className="mb-12">
-        <h2 className="font-headline text-5xl md:text-7xl font-black uppercase tracking-tighter leading-none mb-4">
+      <header className="mb-8 md:mb-12">
+        <h2 className="font-headline text-3xl md:text-7xl font-black uppercase tracking-tighter leading-none mb-4">
           NEWS <span className="text-primary">BROADCAST</span>
         </h2>
-        <div className="h-1 w-24 bg-primary"></div>
+        <div className="h-1 w-16 md:w-24 bg-primary"></div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
         <div className="lg:col-span-7">
-          <div className="bg-surface-container-lowest p-8 border-l-4 border-primary">
+          <div className="bg-zinc-900/50 p-6 md:p-8 border-l-4 border-primary">
             <h3 className="font-headline text-xl font-bold uppercase mb-8 flex items-center gap-2">
               <Megaphone className="text-primary w-6 h-6" />
               Draft Message
@@ -135,7 +135,7 @@ export default function AdminNews() {
                     <p className="text-xs text-zinc-400 font-body leading-relaxed">{dispatch.content}</p>
                     <button 
                       onClick={() => handleDelete(dispatch.id)}
-                      className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-zinc-700 hover:text-red-500 transition-all"
+                      className="absolute top-4 right-4 md:opacity-0 md:group-hover:opacity-100 text-zinc-700 hover:text-red-500 transition-all"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

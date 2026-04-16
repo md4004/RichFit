@@ -112,7 +112,7 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
               )}
             </button>
             {showNotifications && (
-              <div className="absolute right-0 top-full mt-2 w-72 md:w-96 bg-zinc-900 border-2 border-primary animate-in fade-in slide-in-from-top-2 z-[70]">
+              <div className="fixed md:absolute right-4 md:right-0 top-20 md:top-[calc(100%+12px)] w-[calc(100vw-32px)] md:w-96 max-w-[400px] bg-zinc-900 border-2 border-primary animate-in fade-in slide-in-from-top-2 z-[100] shadow-2xl">
                 <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
                   <h4 className="font-headline font-black uppercase text-xs tracking-widest">System Alerts</h4>
                   <button onClick={() => setShowNotifications(false)}><X className="w-4 h-4 text-zinc-500" /></button>

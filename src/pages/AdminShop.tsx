@@ -16,6 +16,7 @@ export default function AdminShop() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState<'inventory' | 'history'>('inventory');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [transactionDeleteConfirm, setTransactionDeleteConfirm] = useState<string | null>(null);
   const [transactionConfig, setTransactionConfig] = useState<{ product: Product, type: 'sale' | 'restock' } | null>(null);
   const [transactionQty, setTransactionQty] = useState(1);
 
@@ -162,6 +163,15 @@ export default function AdminShop() {
     }
   };
 
+  const handleDeleteTransaction = async (transactionId: string) => {
+    if (!window.confirm('Delete this transaction record?')) return;
+    try {
+      await deleteDoc(doc(db, 'transactions', transactionId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `transactions/${transactionId}`);
+    }
+  };
+
   const handleSeedInventory = async () => {
     if (!window.confirm('Import initial static inventory to database?')) return;
     setLoading(true);
@@ -252,12 +262,6 @@ export default function AdminShop() {
             {transactions.filter(t => t.type === 'sale' && t.productId !== 'subscription' && t.productId !== 'subscription_renewal').reduce((sum, t) => sum + t.quantity, 0)}
           </div>
         </div>
-        <div className="bg-zinc-900 p-6 border-t-4 border-zinc-800">
-          <span className="text-zinc-500 font-headline uppercase font-bold tracking-widest text-[10px]">Low Stock</span>
-          <div className="text-primary text-3xl font-black font-headline mt-2">
-            {products.filter(p => p.stock < 10).length.toString().padStart(2, '0')}
-          </div>
-        </div>
       </div>
 
       {view === 'inventory' ? (
@@ -317,15 +321,6 @@ export default function AdminShop() {
                       referrerPolicy="no-referrer"
                     />
                   </div>
-                  <div className="text-right">
-                    <span className={cn(
-                      "text-[10px] font-black px-2 py-1 uppercase font-headline",
-                      product.stock < 10 ? "bg-red-500 text-white" : "bg-primary text-black"
-                    )}>
-                      {product.stock < 10 ? 'Critical' : 'Optimal'}
-                    </span>
-                    <div className="text-3xl font-black mt-2 font-headline text-white">{product.stock} <span className="text-[10px] text-zinc-600">UNIT</span></div>
-                  </div>
                 </div>
                 
                 <h3 className="font-headline text-xl font-bold uppercase text-white mb-1 truncate">{product.name}</h3>
@@ -334,32 +329,22 @@ export default function AdminShop() {
                   <p className="text-primary font-black font-headline">${product.price.toFixed(2)}</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   <button 
                     onClick={() => {
                       setTransactionConfig({ product, type: 'sale' });
                       setTransactionQty(1);
                     }}
-                    className="bg-black border border-zinc-800 text-white font-headline font-black text-[10px] uppercase py-3 hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
+                    className="bg-primary text-black font-headline font-black text-[10px] uppercase py-3 hover:bg-white transition-all flex items-center justify-center gap-2"
                   >
-                    <DollarSign className="w-3 h-3 text-primary" />
+                    <DollarSign className="w-3 h-3" />
                     Record Sale
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setTransactionConfig({ product, type: 'restock' });
-                      setTransactionQty(10);
-                    }}
-                    className="bg-black border border-zinc-800 text-white font-headline font-black text-[10px] uppercase py-3 hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Package className="w-3 h-3 text-primary" />
-                    Restock
                   </button>
                 </div>
 
                 <button 
                   onClick={() => setShowDeleteConfirm(product.id)}
-                  className="absolute top-2 right-2 p-2 text-zinc-800 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  className="absolute top-2 right-2 p-2 text-zinc-600 hover:text-red-500 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -381,11 +366,12 @@ export default function AdminShop() {
                   <th className="px-8 py-4">Type</th>
                   <th className="px-8 py-4 text-right">Qty</th>
                   <th className="px-8 py-4 text-right">Revenue</th>
+                  <th className="px-8 py-4 text-right">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
                 {transactions.map((t) => (
-                  <tr key={t.id} className="hover:bg-zinc-800/50 transition-colors">
+                  <tr key={t.id} className="hover:bg-zinc-800/50 transition-colors group">
                     <td className="px-8 py-4 text-[10px] text-zinc-500 font-mono">
                       {new Date(t.date).toLocaleString()}
                     </td>
@@ -404,6 +390,14 @@ export default function AdminShop() {
                     <td className="px-8 py-4 text-right font-mono text-white">{t.quantity}</td>
                     <td className="px-8 py-4 text-right font-mono text-primary font-bold">
                       {t.amount > 0 ? `$${t.amount.toFixed(2)}` : '—'}
+                    </td>
+                    <td className="px-8 py-4 text-right">
+                      <button 
+                        onClick={() => handleDeleteTransaction(t.id)}
+                        className="text-zinc-600 hover:text-red-500 transition-all md:opacity-0 md:group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -480,17 +474,7 @@ export default function AdminShop() {
                     className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" 
                   />
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Initial Stock</label>
-                  <input 
-                    required 
-                    type="number"
-                    value={formData.stock}
-                    onChange={(e) => setFormData({...formData, stock: Number(e.target.value)})}
-                    className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" 
-                  />
-                </div>
-                <div className="flex flex-col gap-2 md:col-span-2">
+                <div className="flex flex-col gap-2 md:col-span-1">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Category</label>
                   <select 
                     value={formData.category}

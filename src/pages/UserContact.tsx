@@ -72,7 +72,7 @@ export default function UserContact() {
 
         <div className="relative h-full min-h-[400px] bg-zinc-900 overflow-hidden border border-zinc-800 group">
           <img 
-            src="https://i.postimg.cc/ZBKZP8L8/muscles-loading.jpg" 
+            src="https://www.image2url.com/r2/default/images/1776362879347-76232f81-1457-4849-b37d-10a8aeee895b.jpeg" 
             alt="Facility" 
             className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700 opacity-80"
             referrerPolicy="no-referrer"
