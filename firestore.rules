@@ -1,0 +1,271 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required, email format)
+    //   - role: string (required, 'admin' | 'user' | 'coach')
+    //   - tier: string (optional, 'Elite' | 'Performance' | 'Standard')
+    //   - height: number (optional)
+    //   - weight: number (optional)
+    //   - focus: string (optional)
+    //   - image: string (optional, uri)
+    //   - createdAt: timestamp (optional)
+    //
+    // Collection: products
+    // Document ID: {productId}
+    // Fields:
+    //   - name: string (required)
+    //   - price: number (required)
+    //   - category: string (required)
+    //   - description: string (required)
+    //   - image: string (required, uri)
+    //   - sku: string (required)
+    //   - stock: number (required)
+    //   - isBestSeller: bool (optional)
+    //
+    // Collection: announcements
+    // Document ID: {announcementId}
+    // Fields:
+    //   - title: string (required)
+    //   - content: string (required)
+    //   - category: string (required)
+    //   - date: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email != null && (
+            request.auth.token.email.lower() == "michelsaloumi@gmail.com" ||
+            request.auth.token.email.lower() == "michelsaloumi0@gmail.com" ||
+            request.auth.token.email.lower() == "richfit@gmail.com"
+          ))
+        );
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url == "" || url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+               data.uid == userId &&
+               data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+               isValidEmail(data.email) &&
+               data.role in ['admin', 'user', 'coach'] &&
+               (!('tier' in data) || data.tier in ['Beginner', 'Intermediate', 'Expert', 'Elite', 'Performance', 'Standard']) &&
+               (!('height' in data) || data.height is number) &&
+               (!('weight' in data) || data.weight is number) &&
+               (!('image' in data) || isValidUrl(data.image)) &&
+               (!('focus' in data) || data.focus is string) &&
+               (!('medical' in data) || data.medical is string) &&
+               (!('subscriptionEnd' in data) || data.subscriptionEnd is string) &&
+               (!('createdAt' in data) || data.createdAt is string);
+      }
+
+      // Users can only read their own profile, unless they are admin
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // On create: users can create their own profile as 'user', unless they are the default admin
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) && (request.resource.data.role == 'user' || 
+                     (request.auth.token.email != null && (request.auth.token.email.lower() == "michelsaloumi@gmail.com" || request.auth.token.email.lower() == "michelsaloumi0@gmail.com" || request.auth.token.email.lower() == "richfit@gmail.com"))) || isAdmin());
+      
+      // On update: users can update their own profile but cannot change their role unless they are admin
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+      
+      allow delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      function isValidProduct(data) {
+        return data.keys().hasAll(['name', 'price', 'sku', 'stock']) &&
+               data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+               data.price is number && data.price >= 0 &&
+               data.sku is string && data.sku.size() > 0 &&
+               data.stock is number && data.stock >= 0 &&
+               (!('image' in data) || isValidUrl(data.image));
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidProduct(request.resource.data);
+      allow update: if isAdmin() && (resource == null || isValidProduct(request.resource.data));
+      allow delete: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      function isValidAnnouncement(data) {
+        return data.keys().hasAll(['title', 'content', 'date', 'category']) &&
+               data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+               data.content is string && data.content.size() > 0 &&
+               data.category is string &&
+               data.date is string;
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidAnnouncement(request.resource.data);
+      allow update: if isAdmin() && (resource == null || isValidAnnouncement(request.resource.data));
+      allow delete: if isAdmin();
+    }
+
+    match /programs/{programId} {
+      function isValidProgram(data) {
+        return data.keys().hasAll(['userId', 'title', 'exercises']) &&
+               data.userId is string &&
+               data.title is string && data.title.size() > 0 &&
+               data.exercises is list;
+      }
+
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow write: if isAdmin() && isValidProgram(request.resource.data);
+    }
+
+    match /calendars/{userId} {
+      function isValidCalendar(data) {
+        return data.keys().hasAll(['userId', 'schedule']) &&
+               data.userId == userId &&
+               data.schedule is map;
+      }
+
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if (isOwner(userId) || isAdmin()) && isValidCalendar(request.resource.data);
+      allow update: if (isOwner(userId) || isAdmin()) && isValidCalendar(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /records/{userId}/logs/{logId} {
+      function isValidRecord(data) {
+        return data.keys().hasAll(['exerciseName', 'weight', 'date', 'day']) &&
+               data.exerciseName is string &&
+               data.weight is number &&
+               data.date is string &&
+               data.day is string;
+      }
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidRecord(request.resource.data);
+      allow update: if isOwner(userId) && isValidRecord(request.resource.data);
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /snapshots/{userId} {
+      function isValidSnapshot(data) {
+        return data.keys().hasAll(['caloriesCurrent', 'caloriesGoal', 'proteinCurrent', 'proteinGoal', 'carbsCurrent', 'carbsGoal', 'fatsCurrent', 'fatsGoal', 'coachAdvice']) &&
+               data.caloriesCurrent is number &&
+               data.caloriesGoal is number &&
+               data.proteinCurrent is number &&
+               data.proteinGoal is number &&
+               data.carbsCurrent is number &&
+               data.carbsGoal is number &&
+               data.fatsCurrent is number &&
+               data.fatsGoal is number &&
+               data.coachAdvice is string;
+      }
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if (isOwner(userId) || isAdmin()) && isValidSnapshot(request.resource.data);
+    }
+
+    match /transactions/{transactionId} {
+      function isValidTransaction(data) {
+        return data.keys().hasAll(['productId', 'productName', 'amount', 'type', 'quantity', 'date']) &&
+               data.productId is string &&
+               data.productName is string &&
+               data.amount is number &&
+               data.type in ['sale', 'restock'] &&
+               data.quantity is number &&
+               data.date is string;
+      }
+
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidTransaction(request.resource.data);
+    }
+
+    match /notifications/{notificationId} {
+      function isValidNotification(data) {
+        return data.keys().hasAll(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
+               data.userId is string &&
+               data.title is string &&
+               data.message is string &&
+               data.type in ['info', 'warning', 'critical'] &&
+               data.read is bool &&
+               data.createdAt is string;
+      }
+
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data) && 
+                    (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidNotification(request.resource.data) && 
+                    (isAdmin() || (resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId));
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    match /coach_calendars/{calendarId} {
+      function isValidCoachCalendar(data) {
+        return data.keys().hasAll(['coachId', 'month', 'doneDays', 'updatedAt']) &&
+               data.coachId is string &&
+               data.month is string &&
+               data.doneDays is list &&
+               data.updatedAt is string;
+      }
+
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.coachId == request.auth.uid);
+      allow write: if isAdmin() && isValidCoachCalendar(request.resource.data);
+    }
+
+    match /user_logs/{userId}/entries/{dateStr} {
+      function isValidUserLog(data) {
+        return data.keys().hasAll(['userId', 'date', 'exercises', 'updatedAt']) &&
+               data.userId == userId &&
+               data.date == dateStr &&
+               data.exercises is list &&
+               data.updatedAt is string;
+      }
+
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow write: if isAuthenticated() && isOwner(userId) && isValidUserLog(request.resource.data);
+    }
+
+    match /leaderboard/{entryId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+    
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

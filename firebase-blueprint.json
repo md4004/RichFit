@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user identity, role, and fitness biometrics.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "user", "coach"] },
+        "tier": { "type": "string", "enum": ["Elite", "Performance", "Standard"] },
+        "height": { "type": "number" },
+        "weight": { "type": "number" },
+        "focus": { "type": "string" },
+        "image": { "type": "string", "format": "uri" },
+        "subscriptionEnd": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Product": {
+      "title": "Shop Product",
+      "description": "Items available in the member catalog.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "image": { "type": "string", "format": "uri" },
+        "sku": { "type": "string" },
+        "stock": { "type": "number" },
+        "isBestSeller": { "type": "boolean" }
+      },
+      "required": ["name", "price", "sku", "stock"]
+    },
+    "Announcement": {
+      "title": "System Announcement",
+      "description": "Broadcast messages for the facility.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "date"]
+    },
+    "WorkoutProgram": {
+      "title": "Workout Program",
+      "description": "Assigned training routines for members.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "exercises": { 
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "sets": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "assignedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "exercises"]
+    },
+    "WorkoutCalendar": {
+      "title": "Workout Calendar",
+      "description": "Weekly training protocol for a specific user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "sets": { "type": "string" },
+                "reps": { "type": "string" },
+                "notes": { "type": "string" },
+                "weightLifted": { "type": "string" }
+              }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "lastLoggedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "schedule"]
+    },
+    "Transaction": {
+      "title": "Shop Transaction",
+      "description": "Record of a sale or restock event.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["sale", "restock"] },
+        "quantity": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "productName", "amount", "type", "quantity", "date"]
+    },
+    "Snapshot": {
+      "title": "Daily Snapshot",
+      "description": "User's daily nutritional goals and progress.",
+      "type": "object",
+      "properties": {
+        "caloriesCurrent": { "type": "number" },
+        "caloriesGoal": { "type": "number" },
+        "proteinCurrent": { "type": "number" },
+        "proteinGoal": { "type": "number" },
+        "carbsCurrent": { "type": "number" },
+        "carbsGoal": { "type": "number" },
+        "fatsCurrent": { "type": "number" },
+        "fatsGoal": { "type": "number" },
+        "coachAdvice": { "type": "string" }
+      },
+      "required": ["caloriesCurrent", "caloriesGoal", "proteinCurrent", "proteinGoal", "carbsCurrent", "carbsGoal", "fatsCurrent", "fatsGoal", "coachAdvice"]
+    },
+    "Notification": {
+      "title": "System Notification",
+      "description": "Alerts for users and admins regarding subscription status or system events.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "critical"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "CoachCalendar": {
+      "title": "Coach Attendance Calendar",
+      "description": "Monthly attendance or task completion calendar for coaches.",
+      "type": "object",
+      "properties": {
+        "coachId": { "type": "string" },
+        "month": { "type": "string" },
+        "doneDays": { 
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["coachId", "month", "doneDays"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Catalog items."
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Facility news."
+    },
+    "/programs/{programId}": {
+      "schema": "WorkoutProgram",
+      "description": "Assigned training programs."
+    },
+    "/calendars/{userId}": {
+      "schema": "WorkoutCalendar",
+      "description": "User-specific weekly training protocols."
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Inventory and sales records."
+    },
+    "/snapshots/{userId}": {
+      "schema": "Snapshot",
+      "description": "User-specific daily nutritional snapshot."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User and admin notifications."
+    },
+    "/coach_calendars/{calendarId}": {
+      "schema": "CoachCalendar",
+      "description": "Coach-specific monthly attendance calendars."
+    }
+  }
+}

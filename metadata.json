@@ -1,0 +1,5 @@
+{
+  "name": "RICHFIT",
+  "description": "Tactical Brutalist Fitness Management & Performance Platform",
+  "requestFramePermissions": ["camera"]
+}

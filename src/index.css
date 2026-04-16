@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-label: "Space Grotesk", sans-serif;
+
+  --color-primary: #FF0000;
+  --color-primary-container: #FF5540;
+  --color-surface: #131313;
+  --color-surface-container-lowest: #0E0E0E;
+  --color-surface-container-low: #1B1B1B;
+  --color-surface-container: #1F1F1F;
+  --color-surface-container-high: #2A2A2A;
+  --color-surface-container-highest: #353535;
+  --color-on-surface: #E2E2E2;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white font-body selection:bg-primary selection:text-white;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-headline uppercase tracking-tighter;
+  }
+}
+
+@layer components {
+  .brutalist-border {
+    @apply border-b-4 border-primary;
+  }
+
+  .brutalist-card {
+    @apply border-t-4 border-primary bg-surface-container-low;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
