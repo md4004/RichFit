@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X } from 'lucide-react';
+import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save } from 'lucide-react';
 import { db, collection, onSnapshot, query, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
 import { Member } from '@/types';
 import { cn } from '@/lib/utils';
@@ -19,17 +19,22 @@ export default function AdminOps() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showRenewModal, setShowRenewModal] = useState<Member | null>(null);
   const [renewMonths, setRenewMonths] = useState<1 | 3>(1);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     tier: 'Beginner' as const,
+    gender: 'Male' as 'Male' | 'Female',
     height: 0,
     weight: 0,
     focus: 'Hypertrophy' as const,
     medical: '',
     image: '',
+    phone: '',
+    address: '',
     subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
 
@@ -128,10 +133,13 @@ export default function AdminOps() {
         name: formData.name,
         email: formData.email,
         tier: formData.tier,
+        gender: formData.gender,
         height: Number(formData.height),
         weight: Number(formData.weight),
         focus: formData.focus,
         medical: formData.medical,
+        phone: formData.phone,
+        address: formData.address,
         subscriptionEnd: formData.subscriptionEnd,
         role: 'user',
         createdAt: new Date().toISOString(),
@@ -157,11 +165,14 @@ export default function AdminOps() {
         email: '',
         password: '',
         tier: 'Beginner',
+        gender: 'Male',
         height: 0,
         weight: 0,
         focus: 'Hypertrophy',
         medical: '',
         image: '',
+        phone: '',
+        address: '',
         subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
       setView('list');
@@ -215,6 +226,32 @@ export default function AdminOps() {
       alert('Subscription Renewed Successfully.');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${showRenewModal.id}`);
+    }
+  };
+
+  const handleEditClick = (member: Member) => {
+    setEditingMember({ ...member });
+    setIsEditing(true);
+  };
+
+  const handleSaveMember = async () => {
+    if (!editingMember) return;
+    try {
+      const { id, ...updateData } = editingMember;
+      await updateDoc(doc(db, 'users', id), updateData);
+      setSelectedMember(editingMember);
+      setIsEditing(false);
+      setEditingMember(null);
+      alert('Personnel Record Updated Successfully.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${editingMember?.id}`);
+    }
+  };
+
+  const handleEditInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    if (editingMember) {
+      setEditingMember(prev => prev ? ({ ...prev, [name]: (name === 'height' || name === 'weight') ? Number(value) : value }) : null);
     }
   };
 
@@ -442,6 +479,14 @@ export default function AdminOps() {
                   <input name="email" value={formData.email} onChange={handleInputChange} required className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 placeholder:text-zinc-700 uppercase p-3" placeholder="MEMBER@RICHFIT.COM" type="email" />
                 </div>
                 <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Phone Number</label>
+                  <input name="phone" value={formData.phone} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 placeholder:text-zinc-700 uppercase p-3" placeholder="+X (XXX) XXX-XXXX" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Address</label>
+                  <input name="address" value={formData.address} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 placeholder:text-zinc-700 uppercase p-3" placeholder="PHYSICAL LOCATION" />
+                </div>
+                <div className="flex flex-col gap-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Access Password</label>
                   <input name="password" value={formData.password} onChange={handleInputChange} required className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" placeholder="••••••••" type="password" />
                 </div>
@@ -458,6 +503,31 @@ export default function AdminOps() {
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Height (CM)</label>
                     <input name="height" type="number" value={formData.height} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Gender</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({...formData, gender: 'Male'})}
+                        className={cn(
+                          "py-3 font-headline font-black uppercase text-xs transition-all border-2",
+                          formData.gender === 'Male' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
+                        )}
+                      >
+                        Male
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({...formData, gender: 'Female'})}
+                        className={cn(
+                          "py-3 font-headline font-black uppercase text-xs transition-all border-2",
+                          formData.gender === 'Female' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
+                        )}
+                      >
+                        Female
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -505,62 +575,202 @@ export default function AdminOps() {
                     referrerPolicy="no-referrer"
                   />
                 </div>
-                <button 
-                  onClick={() => setShowDeleteConfirm(selectedMember.id)}
-                  className="w-full border-2 border-red-500 text-red-500 py-3 font-headline font-black uppercase text-xs hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Terminate Record
-                </button>
+                <div className="space-y-3">
+                  {!isEditing ? (
+                    <button 
+                      onClick={() => handleEditClick(selectedMember)}
+                      className="w-full bg-white text-black py-3 font-headline font-black uppercase text-xs hover:bg-primary transition-all flex items-center justify-center gap-2"
+                    >
+                      <Database className="w-4 h-4" />
+                      Edit Bio Data
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handleSaveMember}
+                      className="w-full bg-primary text-black py-3 font-headline font-black uppercase text-xs hover:bg-white transition-all flex items-center justify-center gap-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      Save Intelligence
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setShowDeleteConfirm(selectedMember.id)}
+                    className="w-full border-2 border-red-500 text-red-500 py-3 font-headline font-black uppercase text-xs hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Terminate Record
+                  </button>
+                  {isEditing && (
+                    <button 
+                      onClick={() => setIsEditing(false)}
+                      className="w-full border-2 border-zinc-700 text-zinc-500 py-3 font-headline font-black uppercase text-xs hover:bg-zinc-700 hover:text-white transition-all flex items-center justify-center gap-2"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 space-y-10">
                 <div>
-                  <h3 className="text-4xl md:text-6xl font-black font-headline uppercase tracking-tighter text-white leading-none mb-2">
-                    {selectedMember.name}
-                  </h3>
-                  <p className="text-primary font-headline font-bold uppercase tracking-widest">{selectedMember.tier} Classification</p>
+                  {isEditing ? (
+                    <input 
+                      name="name"
+                      value={editingMember?.name || ''}
+                      onChange={handleEditInputChange}
+                      className="text-4xl md:text-6xl font-black font-headline uppercase tracking-tighter text-white leading-none mb-2 bg-black/50 border-b-2 border-primary w-full outline-none"
+                    />
+                  ) : (
+                    <h3 className="text-4xl md:text-6xl font-black font-headline uppercase tracking-tighter text-white leading-none mb-2">
+                      {selectedMember.name}
+                    </h3>
+                  )}
+                  {isEditing ? (
+                    <select 
+                      name="tier"
+                      value={editingMember?.tier || 'Beginner'}
+                      onChange={handleEditInputChange}
+                      className="text-primary bg-black font-headline font-bold uppercase tracking-widest outline-none"
+                    >
+                      <option value="Beginner">Beginner</option>
+                      <option value="Intermediate">Intermediate</option>
+                      <option value="Expert">Expert</option>
+                    </select>
+                  ) : (
+                    <p className="text-primary font-headline font-bold uppercase tracking-widest">{selectedMember.tier} Classification</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <div className="bg-black p-4 border-l-4 border-primary">
                       <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">Contact Intel</p>
-                      <p className="font-headline font-bold text-white">{selectedMember.email}</p>
+                      {isEditing ? (
+                        <div className="space-y-2 mt-2">
+                          <input 
+                            name="email"
+                            value={editingMember?.email || ''}
+                            disabled // Email usually fixed for account
+                            className="font-headline font-bold text-white bg-zinc-900 border-b border-zinc-800 w-full p-2 text-sm opacity-50"
+                          />
+                          <input 
+                            name="phone"
+                            value={editingMember?.phone || ''}
+                            onChange={handleEditInputChange}
+                            placeholder="PHONE NUMBER"
+                            className="font-headline font-bold text-white bg-zinc-900 border-b border-zinc-800 w-full p-2 text-sm"
+                          />
+                          <input 
+                            name="address"
+                            value={editingMember?.address || ''}
+                            onChange={handleEditInputChange}
+                            placeholder="ADDRESS"
+                            className="font-headline font-bold text-white bg-zinc-900 border-b border-zinc-800 w-full p-2 text-sm"
+                          />
+                        </div>
+                      ) : (
+                        <>
+                          <p className="font-headline font-bold text-white">{selectedMember.email}</p>
+                          {selectedMember.phone && <p className="font-headline text-zinc-400 text-xs mt-1">{selectedMember.phone}</p>}
+                          {selectedMember.address && <p className="font-headline text-zinc-600 text-[10px] mt-1">{selectedMember.address}</p>}
+                        </>
+                      )}
                     </div>
                     <div className="bg-black p-4 border-l-4 border-primary flex justify-between items-center">
                       <div>
                         <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">Subscription Status</p>
-                        <p className="font-headline font-bold text-white">
-                          Ends: {selectedMember.subscriptionEnd || 'N/A'}
-                        </p>
+                        {isEditing ? (
+                          <input 
+                            name="subscriptionEnd"
+                            type="date"
+                            value={editingMember?.subscriptionEnd || ''}
+                            onChange={handleEditInputChange}
+                            className="font-headline font-bold text-white bg-zinc-900 border-b border-zinc-800 w-full p-2 text-sm"
+                          />
+                        ) : (
+                          <p className="font-headline font-bold text-white">
+                            Ends: {selectedMember.subscriptionEnd || 'N/A'}
+                          </p>
+                        )}
                       </div>
-                      <button 
-                        onClick={() => setShowRenewModal(selectedMember)}
-                        className="bg-primary text-black font-headline font-black px-4 py-2 uppercase text-[10px] hover:bg-white transition-all"
-                      >
-                        Renew Sub
-                      </button>
+                      {!isEditing && (
+                        <button 
+                          onClick={() => setShowRenewModal(selectedMember)}
+                          className="bg-primary text-black font-headline font-black px-4 py-2 uppercase text-[10px] hover:bg-white transition-all"
+                        >
+                          Renew Sub
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <div className="space-y-6">
                     <div className="bg-black p-4 border-l-4 border-primary">
                       <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">Biometric Data</p>
-                      <div className="flex gap-8">
+                      <div className="flex flex-wrap gap-8">
                         <div>
                           <span className="text-[10px] text-zinc-600 block">HEIGHT</span>
-                          <span className="font-headline font-bold text-xl">{selectedMember.height} CM</span>
+                          {isEditing ? (
+                            <input 
+                              name="height"
+                              type="number"
+                              value={editingMember?.height || 0}
+                              onChange={handleEditInputChange}
+                              className="font-headline font-bold text-xl bg-zinc-900 border-b border-zinc-800 w-20 p-1 text-white"
+                            />
+                          ) : (
+                            <span className="font-headline font-bold text-xl">{selectedMember.height} CM</span>
+                          )}
                         </div>
                         <div>
                           <span className="text-[10px] text-zinc-600 block">WEIGHT</span>
-                          <span className="font-headline font-bold text-xl">{selectedMember.weight} KG</span>
+                          {isEditing ? (
+                            <input 
+                              name="weight"
+                              type="number"
+                              value={editingMember?.weight || 0}
+                              onChange={handleEditInputChange}
+                              className="font-headline font-bold text-xl bg-zinc-900 border-b border-zinc-800 w-20 p-1 text-white"
+                            />
+                          ) : (
+                            <span className="font-headline font-bold text-xl">{selectedMember.weight} KG</span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-600 block">GENDER</span>
+                          {isEditing ? (
+                            <select 
+                              name="gender"
+                              value={editingMember?.gender || 'Male'}
+                              onChange={handleEditInputChange}
+                              className="font-headline font-bold text-xl bg-zinc-900 border-b border-zinc-800 w-32 p-1 text-white uppercase"
+                            >
+                              <option value="Male">MALE</option>
+                              <option value="Female">FEMALE</option>
+                            </select>
+                          ) : (
+                            <span className="font-headline font-bold text-xl uppercase">{selectedMember.gender || 'MALE'}</span>
+                          )}
                         </div>
                       </div>
                     </div>
                     <div className="bg-black p-4 border-l-4 border-primary">
                       <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">Training Focus</p>
-                      <p className="font-headline font-bold text-white uppercase italic">{selectedMember.focus}</p>
+                      {isEditing ? (
+                        <select 
+                          name="focus"
+                          value={editingMember?.focus || 'Hypertrophy'}
+                          onChange={handleEditInputChange}
+                          className="font-headline font-bold text-white uppercase italic bg-zinc-900 border-b border-zinc-800 w-full p-2"
+                        >
+                          <option value="Hypertrophy">Hypertrophy</option>
+                          <option value="Strength">Strength</option>
+                          <option value="Endurance">Endurance</option>
+                          <option value="Mobility">Mobility</option>
+                        </select>
+                      ) : (
+                        <p className="font-headline font-bold text-white uppercase italic">{selectedMember.focus}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -570,9 +780,18 @@ export default function AdminOps() {
                     <Activity className="w-4 h-4" />
                     Medical Clearance / Risk Factors
                   </h4>
-                  <p className="text-zinc-400 text-sm leading-relaxed uppercase font-headline font-bold">
-                    {selectedMember.medical || 'NO CRITICAL RISK FACTORS LOGGED.'}
-                  </p>
+                  {isEditing ? (
+                    <textarea 
+                      name="medical"
+                      value={editingMember?.medical || ''}
+                      onChange={handleEditInputChange}
+                      className="text-white text-sm leading-relaxed uppercase font-headline font-bold bg-zinc-900 border border-zinc-800 w-full p-4 min-h-[120px] outline-none focus:border-primary"
+                    />
+                  ) : (
+                    <p className="text-zinc-400 text-sm leading-relaxed uppercase font-headline font-bold">
+                      {selectedMember.medical || 'NO CRITICAL RISK FACTORS LOGGED.'}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

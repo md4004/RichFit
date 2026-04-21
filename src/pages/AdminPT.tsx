@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { db, collection, onSnapshot, query, addDoc, doc, setDoc, deleteDoc, OperationType, handleFirestoreError, where, getDoc } from '@/firebase';
 import { Member, Exercise, WorkoutCalendar } from '@/types';
 import { EXERCISES } from '@/constants';
+import ExerciseSelector from '@/components/ExerciseSelector';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -195,20 +196,12 @@ export default function AdminPT() {
                         <div className="flex flex-col gap-1">
                           <label className="text-[8px] text-zinc-500 font-black font-headline uppercase">Movement</label>
                           <div className="flex gap-2">
-                            <div className="relative flex-1 group/select">
-                              <select 
+                            <div className="flex-1">
+                              <ExerciseSelector 
                                 value={ex.name}
-                                onChange={(e) => updateExercise(index, 'name', e.target.value)}
-                                className="w-full bg-zinc-900 border-0 border-b border-zinc-700 text-white font-headline text-xs p-2 focus:border-primary focus:ring-0 uppercase appearance-none cursor-pointer"
-                              >
-                                <option value="">SELECT MOVEMENT</option>
-                                {EXERCISES.map(item => (
-                                  <option key={item.name} value={item.name}>{item.name}</option>
-                                ))}
-                              </select>
-                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                                <ChevronRight className="w-3 h-3 text-zinc-500 rotate-90" />
-                              </div>
+                                onChange={(val) => updateExercise(index, 'name', val)}
+                                className="w-full"
+                              />
                             </div>
                             {ex.name && (
                               <a 

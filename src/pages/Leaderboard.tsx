@@ -1,37 +1,44 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Trophy, Medal, Crown, Activity, Search, ChevronRight, TrendingUp, Trash2, Edit2, Save, X } from 'lucide-react';
-import { db, collection, onSnapshot, query, orderBy, limit, doc, deleteDoc, updateDoc, OperationType, handleFirestoreError } from '@/firebase';
+import { Trophy, Medal, Crown, Activity, Search, ChevronRight, TrendingUp, Trash2, Edit2, Save, X, Plus } from 'lucide-react';
+import { db, collection, onSnapshot, query, orderBy, limit, doc, deleteDoc, updateDoc, OperationType, handleFirestoreError, setDoc, getDocs } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/AuthContext';
+import { Member } from '@/types';
 
 interface LeaderboardEntry {
   id: string;
   userId: string;
   userName: string;
   userImage: string | null;
+  gender?: 'Male' | 'Female';
   exerciseName: string;
   weight: number;
   reps?: number;
   date: string;
 }
 
-interface UserTotal {
-  userId: string;
-  userName: string;
-  userImage: string | null;
-  totalWeight: number;
-  liftsCount: number;
-}
+const DEFAULT_EXERCISES = ['Deadlift', 'Bench Press', 'Squats', 'Shoulder Press'];
 
 export default function Leaderboard() {
   const { isAdmin } = useAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedExercise, setSelectedExercise] = useState<string>('All');
+  const [selectedGender, setSelectedGender] = useState<'Male' | 'Female'>('Male');
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<{ weight: number; reps: number }>({ weight: 0, reps: 0 });
+  
+  const [isAdding, setIsAdding] = useState(false);
+  const [newEntry, setNewEntry] = useState({
+    userId: '',
+    exerciseName: DEFAULT_EXERCISES[0],
+    weight: 0,
+    reps: 0,
+    gender: 'Male' as 'Male' | 'Female'
+  });
 
   useEffect(() => {
     const q = query(collection(db, 'leaderboard'), orderBy('weight', 'desc'));
@@ -45,6 +52,16 @@ export default function Leaderboard() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      const q = query(collection(db, 'users'));
+      getDocs(q).then(snapshot => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
+        setMembers(data.filter(m => m.role !== 'admin'));
+      });
+    }
+  }, [isAdmin]);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to remove this entry from the leaderboard?')) return;
@@ -72,36 +89,67 @@ export default function Leaderboard() {
     }
   };
 
-  const exercises = ['All', ...Array.from(new Set(entries.map(e => e.exerciseName)))];
+  const handleAddEntry = async () => {
+    if (!newEntry.userId || !newEntry.exerciseName || newEntry.weight <= 0) {
+      alert('Please fill in all tactical data.');
+      return;
+    }
 
-  // Calculate totals per user
-  const userTotals = (Object.values(
-    entries.reduce((acc: Record<string, UserTotal>, entry) => {
-      if (!acc[entry.userId]) {
-        acc[entry.userId] = {
-          userId: entry.userId,
-          userName: entry.userName,
-          userImage: entry.userImage,
-          totalWeight: 0,
-          liftsCount: 0
-        };
-      }
-      acc[entry.userId].totalWeight += entry.weight;
-      acc[entry.userId].liftsCount += 1;
-      return acc;
-    }, {})
-  ) as UserTotal[]).sort((a, b) => b.totalWeight - a.totalWeight);
+    const member = members.find(m => m.id === newEntry.userId);
+    if (!member) return;
 
-  const top3 = userTotals.slice(0, 3);
+    try {
+      const entryId = `${newEntry.exerciseName.replace(/\s+/g, '_').toLowerCase()}_${newEntry.userId}`;
+      await setDoc(doc(db, 'leaderboard', entryId), {
+        userId: newEntry.userId,
+        userName: member.name,
+        userImage: member.image || null,
+        gender: member.gender || newEntry.gender,
+        exerciseName: newEntry.exerciseName,
+        weight: newEntry.weight,
+        reps: newEntry.reps,
+        date: new Date().toISOString()
+      }, { merge: true });
+      
+      setIsAdding(false);
+      setNewEntry({
+        userId: '',
+        exerciseName: DEFAULT_EXERCISES[0],
+        weight: 0,
+        reps: 0,
+        gender: 'Male'
+      });
+      alert('Manual induction complete.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'leaderboard');
+    }
+  };
+
+  // Filter entries by gender
+  const genderFilteredEntries = entries.filter(e => {
+    // If gender is missing in entry (old entries), default to Male or match nothing if needed
+    // But better to assume Male for old ones or just show them in Male section
+    return (e.gender || 'Male') === selectedGender;
+  });
+
+  const exercises = ['All', ...Array.from(new Set([
+    ...DEFAULT_EXERCISES,
+    ...genderFilteredEntries.map(e => e.exerciseName)
+  ]))];
 
   // Group entries by exercise
-  const groupedEntries = entries.reduce((acc: Record<string, LeaderboardEntry[]>, entry) => {
+  const groupedEntries = genderFilteredEntries.reduce((acc: Record<string, LeaderboardEntry[]>, entry) => {
     if (!acc[entry.exerciseName]) {
       acc[entry.exerciseName] = [];
     }
     acc[entry.exerciseName].push(entry);
     return acc;
   }, {});
+
+  // Ensure default exercises are shown even if empty
+  DEFAULT_EXERCISES.forEach(ex => {
+    if (!groupedEntries[ex]) groupedEntries[ex] = [];
+  });
 
   // Sort each group by weight desc
   Object.keys(groupedEntries).forEach(ex => {
@@ -110,6 +158,7 @@ export default function Leaderboard() {
 
   const filteredGroups = Object.keys(groupedEntries)
     .filter(ex => selectedExercise === 'All' || ex === selectedExercise)
+    .filter(ex => DEFAULT_EXERCISES.includes(ex) || groupedEntries[ex].length > 0) // Only show default ones or those with entries
     .filter(ex => 
       ex.toLowerCase().includes(searchQuery.toLowerCase()) || 
       groupedEntries[ex].some(e => e.userName.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -117,67 +166,47 @@ export default function Leaderboard() {
 
   return (
     <Layout>
-      <header className="mb-12">
-        <span className="font-headline text-primary text-sm font-bold tracking-[0.2em] uppercase">Global Rankings</span>
-        <h2 className="font-headline text-5xl md:text-7xl font-black uppercase leading-none tracking-tighter mt-2">
-          Strength<br />Leaderboard
-        </h2>
+      <header className="mb-12 flex flex-col md:flex-row justify-between items-end gap-6">
+        <div>
+          <span className="font-headline text-primary text-sm font-bold tracking-[0.2em] uppercase">Global Rankings</span>
+          <h2 className="font-headline text-5xl md:text-7xl font-black uppercase leading-none tracking-tighter mt-2">
+            Strength<br />Leaderboard
+          </h2>
+        </div>
+        {isAdmin && (
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-primary text-black font-headline font-black px-6 py-3 uppercase flex items-center gap-2 hover:bg-white transition-all active:scale-95 text-sm"
+          >
+            <Plus className="w-5 h-5" />
+            Add Record
+          </button>
+        )}
       </header>
 
-      {/* Podium Section */}
-      <section className="mb-16">
-        <h3 className="font-headline text-2xl font-black uppercase italic mb-8 flex items-center gap-3">
-          <Crown className="text-primary" />
-          Total Weight Standings
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-          {/* 2nd Place */}
-          {top3[1] && (
-            <div className="order-2 md:order-1 bg-zinc-900 border-t-4 border-zinc-500 p-6 text-center relative pt-12">
-              <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-zinc-800 rounded-full border-4 border-zinc-500 flex items-center justify-center">
-                <Medal className="text-zinc-500 w-8 h-8" />
-              </div>
-              <p className="font-headline font-black text-xl uppercase truncate">{top3[1].userName}</p>
-              <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-widest mt-1">Silver Medalist</p>
-              <div className="mt-4 bg-black py-2">
-                <p className="font-headline font-black text-2xl text-white">{top3[1].totalWeight} KG</p>
-                <p className="text-[8px] text-zinc-600 uppercase font-black tracking-tighter">{top3[1].liftsCount} LIFTS RECORDED</p>
-              </div>
-            </div>
-          )}
-
-          {/* 1st Place */}
-          {top3[0] && (
-            <div className="order-1 md:order-2 bg-zinc-900 border-t-8 border-primary p-8 text-center relative pt-16 scale-105 shadow-2xl shadow-primary/10">
-              <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-20 h-20 bg-primary rounded-full border-4 border-white flex items-center justify-center">
-                <Trophy className="text-black w-10 h-10" />
-              </div>
-              <p className="font-headline font-black text-3xl uppercase truncate">{top3[0].userName}</p>
-              <p className="text-primary text-xs uppercase font-black tracking-[0.2em] mt-1">Current Champion</p>
-              <div className="mt-6 bg-black py-4 border-x-2 border-primary">
-                <p className="font-headline font-black text-4xl text-white">{top3[0].totalWeight} KG</p>
-                <p className="text-[10px] text-zinc-500 uppercase font-black tracking-tighter">{top3[0].liftsCount} LIFTS RECORDED</p>
-              </div>
-            </div>
-          )}
-
-          {/* 3rd Place */}
-          {top3[2] && (
-            <div className="order-3 bg-zinc-900 border-t-4 border-orange-800 p-6 text-center relative pt-12">
-              <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-zinc-800 rounded-full border-4 border-orange-800 flex items-center justify-center">
-                <Medal className="text-orange-800 w-8 h-8" />
-              </div>
-              <p className="font-headline font-black text-xl uppercase truncate">{top3[2].userName}</p>
-              <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-widest mt-1">Bronze Medalist</p>
-              <div className="mt-4 bg-black py-2">
-                <p className="font-headline font-black text-2xl text-white">{top3[2].totalWeight} KG</p>
-                <p className="text-[8px] text-zinc-600 uppercase font-black tracking-tighter">{top3[2].liftsCount} LIFTS RECORDED</p>
-              </div>
-            </div>
-          )}
+      {/* Gender Toggles */}
+      <div className="flex justify-center mb-16">
+        <div className="flex bg-black border-2 border-zinc-800 p-1">
+          <button 
+            onClick={() => setSelectedGender('Male')}
+            className={cn(
+              "px-12 py-3 font-headline font-black uppercase text-sm tracking-widest transition-all",
+              selectedGender === 'Male' ? "bg-primary text-black" : "text-zinc-500 hover:text-white"
+            )}
+          >
+            Men
+          </button>
+          <button 
+            onClick={() => setSelectedGender('Female')}
+            className={cn(
+              "px-12 py-3 font-headline font-black uppercase text-sm tracking-widest transition-all",
+              selectedGender === 'Female' ? "bg-primary text-black" : "text-zinc-500 hover:text-white"
+            )}
+          >
+            Women
+          </button>
         </div>
-      </section>
+      </div>
 
       {/* Search & Filter Controls */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-10 bg-zinc-900 p-6 border-l-4 border-primary">
@@ -316,6 +345,92 @@ export default function Leaderboard() {
           </div>
         )}
       </div>
+
+      {/* Add Entry Modal */}
+      {isAdding && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="bg-zinc-900 border-t-8 border-primary p-8 max-w-md w-full animate-in zoom-in-95 duration-200">
+            <h3 className="font-headline font-black text-2xl text-white mb-6 uppercase tracking-tighter">Induct Manual Record</h3>
+            
+            <div className="space-y-6">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Select Athlete</label>
+                <select 
+                  value={newEntry.userId}
+                  onChange={(e) => setNewEntry({...newEntry, userId: e.target.value})}
+                  className="bg-black border-2 border-zinc-800 p-3 text-white font-headline text-xs focus:border-primary outline-none uppercase"
+                >
+                  <option value="">SELECT PERSONNEL</option>
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Movement / Lift</label>
+                <input 
+                  type="text" 
+                  value={newEntry.exerciseName}
+                  onChange={(e) => setNewEntry({...newEntry, exerciseName: e.target.value})}
+                  placeholder="EXERCISE NAME"
+                  className="bg-black border-2 border-zinc-800 p-3 text-white font-headline text-xs focus:border-primary outline-none uppercase placeholder:text-zinc-700"
+                />
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {DEFAULT_EXERCISES.map(ex => (
+                    <button 
+                      key={ex}
+                      onClick={() => setNewEntry({...newEntry, exerciseName: ex})}
+                      className={cn(
+                        "text-[8px] px-2 py-1 border border-zinc-800 uppercase font-black",
+                        newEntry.exerciseName === ex ? "bg-primary text-black" : "text-zinc-500"
+                      )}
+                    >
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Weight (KG)</label>
+                  <input 
+                    type="number" 
+                    value={newEntry.weight}
+                    onChange={(e) => setNewEntry({...newEntry, weight: Number(e.target.value)})}
+                    className="bg-black border-2 border-zinc-800 p-3 text-white font-headline text-xs focus:border-primary outline-none"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Reps</label>
+                  <input 
+                    type="number" 
+                    value={newEntry.reps}
+                    onChange={(e) => setNewEntry({...newEntry, reps: Number(e.target.value)})}
+                    className="bg-black border-2 border-zinc-800 p-3 text-white font-headline text-xs focus:border-primary outline-none"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 pt-4">
+                <button 
+                  onClick={() => setIsAdding(false)}
+                  className="bg-zinc-800 text-white font-headline font-black py-4 uppercase text-xs hover:bg-zinc-700 transition-all"
+                >
+                  Abort
+                </button>
+                <button 
+                  onClick={handleAddEntry}
+                  className="bg-primary text-black font-headline font-black py-4 uppercase text-xs hover:bg-white transition-all shadow-lg shadow-primary/20"
+                >
+                  Confirm Entry
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

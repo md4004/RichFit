@@ -73,6 +73,7 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
     { name: 'Shop', path: '/shop', icon: ShoppingCart },
     { name: 'AI Coach', path: '/coach', icon: Brain },
     { name: 'Contact', path: '/contact', icon: Phone },
+    { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
   const adminNavItems = [
@@ -82,17 +83,32 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
     { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
     { name: 'Income', path: '/admin/shop', icon: DollarSign },
     { name: 'News', path: '/admin/news', icon: Newspaper },
+    { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
   const coachNavItems = [
     { name: 'Duty Calendar', path: '/coach/dashboard', icon: CalendarIcon },
     { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
+    { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
   const currentNavItems = isAdmin ? adminNavItems : (isCoach ? coachNavItems : navItems);
 
+  const initPermissions = async () => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.error("Auto permission request failed:", e);
+      }
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-black text-white font-body overflow-x-hidden">
+    <div 
+      className="min-h-screen bg-black text-white font-body overflow-x-hidden"
+      onClick={initPermissions}
+    >
       <NotificationManager />
       {/* Top Bar */}
       <header className="fixed top-0 w-full z-50 border-b-4 border-primary flex justify-between items-center px-4 md:px-6 py-4 bg-black">

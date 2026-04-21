@@ -41,6 +41,7 @@ import {
 import { useAuth } from '@/AuthContext';
 import { Exercise, WorkoutCalendar, UserLog } from '@/types';
 import { EXERCISES } from '@/constants';
+import ExerciseSelector from '@/components/ExerciseSelector';
 import { 
   format, 
   startOfMonth, 
@@ -226,6 +227,7 @@ export default function UserPT() {
             userId: user.uid,
             userName: profile?.name || 'Anonymous Member',
             userImage: profile?.image || null,
+            gender: profile?.gender || 'Male',
             exerciseName: ex.name,
             weight: bestSet.weight,
             reps: bestSet.reps,
@@ -408,15 +410,11 @@ export default function UserPT() {
                     <div key={idx} className="bg-black border border-zinc-800 p-4 flex flex-col md:flex-row gap-4">
                       <div className="flex-1">
                         <label className="block text-[8px] text-zinc-600 font-black uppercase mb-1">Exercise</label>
-                        <select
+                        <ExerciseSelector
                           value={ex.name}
-                          onChange={(e) => updateRoutineExercise(idx, 'name', e.target.value)}
-                          className="w-full bg-zinc-900 border-none text-white font-headline text-xs uppercase p-2 focus:ring-1 focus:ring-primary"
-                        >
-                          {EXERCISES.map(e => (
-                            <option key={e.name} value={e.name}>{e.name}</option>
-                          ))}
-                        </select>
+                          onChange={(val) => updateRoutineExercise(idx, 'name', val)}
+                          className="w-full"
+                        />
                       </div>
                       <div className="w-24">
                         <label className="block text-[8px] text-zinc-600 font-black uppercase mb-1">Sets</label>

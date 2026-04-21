@@ -17,8 +17,11 @@ export interface Member {
   tier: 'Beginner' | 'Intermediate' | 'Expert';
   height: number;
   weight: number;
+  gender: 'Male' | 'Female';
   focus: 'Hypertrophy' | 'Strength' | 'Endurance' | 'Mobility';
   image: string;
+  phone?: string;
+  address?: string;
   subscriptionEnd?: string;
   medical?: string;
   role?: 'admin' | 'user' | 'coach';

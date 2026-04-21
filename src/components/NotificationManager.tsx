@@ -35,6 +35,7 @@ export default function NotificationManager() {
               createdAt: new Date().toISOString()
             });
           }
+          sendBrowserNotification('Subscription Alert', 'Your tactical access expires in 24 hours. Renew now.');
         } else if (diffDays <= 0) {
           // Expired
           const expiredId = `sub_expired_${user.uid}_${profile.subscriptionEnd}`;
@@ -50,6 +51,7 @@ export default function NotificationManager() {
               createdAt: new Date().toISOString()
             });
           }
+          sendBrowserNotification('Access Terminated', 'Your subscription has expired. Access restricted.');
         }
       }
 
@@ -81,6 +83,7 @@ export default function NotificationManager() {
                 createdAt: new Date().toISOString()
               });
             }
+            sendBrowserNotification('Personnel Alert', `${member.name}'s subscription is ending in ${diffDays} days.`);
           } else if (diffDays <= 0) {
             // Expired
             const adminExpiredId = `admin_sub_expired_${member.id}_${member.subscriptionEnd}`;
@@ -101,8 +104,47 @@ export default function NotificationManager() {
       }
     };
 
-    // Run check once on mount
+    const sendBrowserNotification = (title: string, message: string) => {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification(title, {
+          body: message,
+          icon: '/icon.png'
+        });
+      }
+    };
+
+    // 3. User-specific event triggers (Simple examples)
+    const checkEventTriggers = () => {
+      const lastCheck = localStorage.getItem('last_notif_check');
+      const now = Date.now();
+      
+      // Check once every 4 hours for sample events to avoid spamming
+      if (!lastCheck || now - parseInt(lastCheck) > 1000 * 60 * 60 * 4) {
+        const hour = new Date().getHours();
+        
+        // Workout reminder (8 AM or 5 PM)
+        if (hour === 8 || hour === 17) {
+          sendBrowserNotification(
+            "Time to hit the iron, Michel!", 
+            "Your tactical workout protocol starts now. Gear up."
+          );
+        }
+
+        // Random "Stock" alert sample
+        if (Math.random() < 0.1) {
+          sendBrowserNotification(
+            "Stock Alert: Inventory Restock",
+            "Your favorite protein shake is back in stock at the HQ."
+          );
+        }
+
+        localStorage.setItem('last_notif_check', now.toString());
+      }
+    };
+
+    // Run checks once on mount
     checkSubscriptions();
+    checkEventTriggers();
     
     // Optional: Run every hour if the app stays open
     const interval = setInterval(checkSubscriptions, 1000 * 60 * 60);

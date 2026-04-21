@@ -15,6 +15,7 @@ service cloud.firestore {
     //   - tier: string (optional, 'Elite' | 'Performance' | 'Standard')
     //   - height: number (optional)
     //   - weight: number (optional)
+    //   - gender: string (optional, 'Male' | 'Female')
     //   - focus: string (optional)
     //   - image: string (optional, uri)
     //   - createdAt: timestamp (optional)
@@ -264,6 +265,11 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
       allow update: if isAuthenticated() && (request.resource.data.userId == request.auth.uid || isAdmin());
       allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    match /custom_exercises/{exerciseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated(); // Allow users to create custom movements for their routines
     }
     
     match /test/connection {
