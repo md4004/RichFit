@@ -27,6 +27,8 @@ export interface Member {
   role?: 'admin' | 'user' | 'coach';
   email?: string;
   createdAt?: string;
+  fcmToken?: string;
+  lastSync?: string;
 }
 
 export interface Coach {

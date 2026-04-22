@@ -2,12 +2,14 @@ import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, collection, onSnapshot, query, orderBy, limit, addDoc, updateDoc, deleteDoc, getDocFromServer, where, getDocs } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
+export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 
 // Secondary app for creating users without signing them in
 const secondaryApp = getApps().length > 1 ? getApp('secondary') : initializeApp(firebaseConfig, 'secondary');
@@ -96,6 +98,8 @@ export {
   ref,
   uploadBytes,
   getDownloadURL,
-  uploadBytesResumable
+  uploadBytesResumable,
+  getToken,
+  onMessage
 };
 export type { User };

@@ -1,12 +1,53 @@
 import React, { useEffect } from 'react';
 import { useAuth } from '@/AuthContext';
-import { db, collection, onSnapshot, query, where, addDoc, getDocs, doc, setDoc, OperationType, handleFirestoreError, getDoc } from '@/firebase';
+import { db, collection, onSnapshot, query, where, addDoc, getDocs, doc, setDoc, OperationType, handleFirestoreError, getDoc, messaging, getToken, onMessage, updateDoc, orderBy, limit } from '@/firebase';
 
 export default function NotificationManager() {
   const { user, profile, isAdmin } = useAuth();
 
   useEffect(() => {
     if (!user) return;
+
+    // 1. FCM Token Management
+    const setupFCM = async () => {
+      try {
+        if (!messaging) return;
+        
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          // Attempt to get token - note: using a placeholder vapidKey
+          // User should replace with real key from Firebase Console
+          const currentToken = await getToken(messaging).catch(err => {
+            console.warn("FCM Token retrieval failed without VAPID key. Protocol restricted.");
+            return null;
+          });
+
+          if (currentToken && currentToken !== profile?.fcmToken) {
+            console.log("Tactical Update: New FCM Token secured:", currentToken);
+            await updateDoc(doc(db, 'users', user.uid), {
+              fcmToken: currentToken,
+              lastSync: new Date().toISOString()
+            });
+          }
+        }
+      } catch (err) {
+        console.error("FCM Protocol error:", err);
+      }
+    };
+
+    // 2. Foreground Message Handler
+    let unsubscribeMessaging: () => void = () => {};
+    if (messaging) {
+      unsubscribeMessaging = onMessage(messaging, (payload) => {
+        console.log('Tactical Message Received in Foreground:', payload);
+        if (payload.notification) {
+          sendBrowserNotification(
+            payload.notification.title || "RICHFIT SYSTEM", 
+            payload.notification.body || "Priority update received."
+          );
+        }
+      });
+    }
 
     const checkSubscriptions = async () => {
       const today = new Date();
@@ -104,12 +145,24 @@ export default function NotificationManager() {
       }
     };
 
-    const sendBrowserNotification = (title: string, message: string) => {
+    const sendBrowserNotification = async (title: string, message: string) => {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(title, {
-          body: message,
-          icon: '/icon.png'
-        });
+        if ('serviceWorker' in navigator) {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            registration.showNotification(title, {
+              body: message,
+              icon: '/icon.png',
+              badge: '/icon.png'
+            });
+          } catch (e) {
+            console.error("SW notification failed:", e);
+            // Fallback
+            new Notification(title, { body: message, icon: '/icon.png' });
+          }
+        } else {
+          new Notification(title, { body: message, icon: '/icon.png' });
+        }
       }
     };
 
@@ -142,13 +195,41 @@ export default function NotificationManager() {
       }
     };
 
+    // 4. Firestore Notification Listener (Real-time trigger for UI and Browser Notifications)
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      where('read', '==', false),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+
+    const unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          // Avoid triggering on initial load of historical unread notifications
+          const createdTime = new Date(data.createdAt).getTime();
+          const now = Date.now();
+          if (now - createdTime < 10000) { // Only notify if created in last 10 seconds
+            sendBrowserNotification(data.title, data.message);
+          }
+        }
+      });
+    });
+
     // Run checks once on mount
+    setupFCM();
     checkSubscriptions();
     checkEventTriggers();
     
     // Optional: Run every hour if the app stays open
     const interval = setInterval(checkSubscriptions, 1000 * 60 * 60);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      unsubscribeMessaging();
+      unsubscribeFirestore();
+    };
   }, [user, profile, isAdmin]);
 
   return null;

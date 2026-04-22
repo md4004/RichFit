@@ -97,9 +97,14 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
   const initPermissions = async () => {
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       try {
-        await Notification.requestPermission();
+        // Use a more robust check to avoid multiple prompts
+        console.log("Triggering tactical notification induction...");
+        const result = await Notification.requestPermission();
+        if (result === 'granted') {
+          console.log("Tactical access granted.");
+        }
       } catch (e) {
-        console.error("Auto permission request failed:", e);
+        console.warn("Notification induction delayed:", e);
       }
     }
   };
@@ -107,7 +112,12 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
   return (
     <div 
       className="min-h-screen bg-black text-white font-body overflow-x-hidden"
-      onClick={initPermissions}
+      onClick={() => {
+        initPermissions();
+        // We only want to attempt this once per session to avoid interference
+        const mainDiv = document.querySelector('.min-h-screen');
+        if (mainDiv) (mainDiv as HTMLElement).onclick = null;
+      }}
     >
       <NotificationManager />
       {/* Top Bar */}

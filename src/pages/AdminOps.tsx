@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save } from 'lucide-react';
+import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle } from 'lucide-react';
 import { db, collection, onSnapshot, query, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
 import { Member } from '@/types';
 import { cn } from '@/lib/utils';
@@ -410,7 +410,14 @@ export default function AdminOps() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-headline font-bold text-white uppercase text-sm truncate">{member.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-headline font-bold text-white uppercase text-sm truncate">{member.name}</h4>
+                          {member.fcmToken ? (
+                            <span className="bg-primary/20 text-primary text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-primary/30">SYNCED</span>
+                          ) : (
+                            <span className="bg-zinc-800 text-zinc-500 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-zinc-700">OFF-GRID</span>
+                          )}
+                        </div>
                         <p className="text-zinc-500 text-[10px] font-headline uppercase tracking-widest">
                           {member.tier} Tier • {member.subscriptionEnd ? `${calculateDaysLeft(member.subscriptionEnd)} Days Left` : 'No Sub'}
                         </p>
@@ -700,6 +707,28 @@ export default function AdminOps() {
                         >
                           Renew Sub
                         </button>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "bg-black p-4 border-l-4",
+                      selectedMember.fcmToken ? "border-primary" : "border-zinc-700"
+                    )}>
+                      <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">COMMS STATUS</p>
+                      <div className="flex items-center gap-2">
+                        {selectedMember.fcmToken ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-primary" />
+                            <span className="font-headline font-bold text-white uppercase text-xs">ENCRYPTED SYNC ACTIVE</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4 text-zinc-600" />
+                            <span className="font-headline font-bold text-zinc-500 uppercase text-xs">DEVICE OFF-GRID</span>
+                          </>
+                        )}
+                      </div>
+                      {selectedMember.lastSync && (
+                        <p className="text-[8px] text-zinc-600 font-headline uppercase mt-1">Last Contact: {new Date(selectedMember.lastSync).toLocaleString()}</p>
                       )}
                     </div>
                   </div>
