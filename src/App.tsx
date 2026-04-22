@@ -20,7 +20,7 @@ import UserContact from './pages/UserContact';
 import Settings from './pages/Settings';
 import PWAPrompt from './components/PWAPrompt';
 
-const CURRENT_VERSION = '1.0.0';
+const CURRENT_VERSION = '1.0.1';
 const G_DRIVE_LINK = 'https://drive.google.com/uc?export=download&id=19u4sZ1HgXLumIEhoy17Hct5zGLQFkr2S';
 const VERSION_JSON_URL = 'https://richfit-236411176275.us-west1.run.app/version.json';
 
