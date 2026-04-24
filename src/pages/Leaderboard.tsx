@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Trophy, Medal, Crown, Activity, Search, ChevronRight, TrendingUp, Trash2, Edit2, Save, X, Plus } from 'lucide-react';
+import { Trophy, Medal, Crown, Activity, Search, ChevronRight, TrendingUp, Trash2, Edit2, Save, X, Plus, Video, PlayCircle } from 'lucide-react';
 import { db, collection, onSnapshot, query, orderBy, limit, doc, deleteDoc, updateDoc, OperationType, handleFirestoreError, setDoc, getDocs } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/AuthContext';
@@ -15,6 +15,7 @@ interface LeaderboardEntry {
   exerciseName: string;
   weight: number;
   reps?: number;
+  videoUrl?: string | null;
   date: string;
 }
 
@@ -63,12 +64,26 @@ export default function Leaderboard() {
     }
   }, [isAdmin]);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to remove this entry from the leaderboard?')) return;
+    console.log('Confirmed. Executing Firestore deleteDoc for path: leaderboard/' + id);
+    setDeletingId(id);
+    setConfirmDeleteId(null);
+    
     try {
-      await deleteDoc(doc(db, 'leaderboard', id));
+      const docRef = doc(db, 'leaderboard', id);
+      await deleteDoc(docRef);
+      console.log('Delete operation emitted to Firestore.');
+      // No alert needed if it works, the UI will update via snapshot
     } catch (error) {
+      console.error('CRITICAL: Tactical deletion encountered Error:', error);
+      alert('TactICAL DELETION FAILED. Check admin permissions.');
       handleFirestoreError(error, OperationType.DELETE, `leaderboard/${id}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -303,6 +318,22 @@ export default function Leaderboard() {
                         )}
                       </div>
                       
+                      {entry.videoUrl && (
+                        <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
+                          <a 
+                            href={entry.videoUrl} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="flex items-center group/vid"
+                            title="View Lift Execution"
+                          >
+                            <div className="w-8 h-8 bg-primary/10 rounded flex items-center justify-center border border-primary/30 group-hover/vid:bg-primary group-hover/vid:text-black transition-all">
+                              <Video className="w-4 h-4" />
+                            </div>
+                          </a>
+                        </div>
+                      )}
+
                       {isAdmin && (
                         <div className="flex gap-2 border-l border-zinc-800 pl-4">
                           {editingId === entry.id ? (
@@ -319,9 +350,40 @@ export default function Leaderboard() {
                               <button onClick={() => handleEdit(entry)} className="p-2 text-primary hover:bg-primary/10 transition-colors">
                                 <Edit2 className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDelete(entry.id)} className="p-2 text-red-500 hover:bg-red-500/10 transition-colors">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirmDeleteId === entry.id) {
+                                      handleDelete(entry.id);
+                                    } else {
+                                      setConfirmDeleteId(entry.id);
+                                      // Reset after 3 seconds if not clicked again
+                                      setTimeout(() => setConfirmDeleteId(null), 3000);
+                                    }
+                                  }} 
+                                  disabled={deletingId === entry.id}
+                                  className={cn(
+                                    "p-3 transition-all border border-transparent rounded-lg relative group active:scale-95",
+                                    confirmDeleteId === entry.id 
+                                      ? "bg-red-600 text-white animate-pulse" 
+                                      : "text-red-500 hover:bg-red-500/10 hover:border-red-500"
+                                  )}
+                                  title={confirmDeleteId === entry.id ? "Click again to confirm" : "Delete Protocol Record"}
+                                >
+                                  {deletingId === entry.id ? (
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  ) : confirmDeleteId === entry.id ? (
+                                    <Trash2 className="w-4 h-4" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 pointer-events-none" />
+                                  )}
+                                  
+                                  {confirmDeleteId === entry.id && (
+                                    <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[8px] font-black uppercase py-1 px-2 whitespace-nowrap rounded animate-bounce">
+                                      Confirm Delete?
+                                    </span>
+                                  )}
+                                </button>
                             </>
                           )}
                         </div>

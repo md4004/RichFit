@@ -87,8 +87,13 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
   ];
 
   const coachNavItems = [
+    { name: 'Home', path: '/', icon: Home },
     { name: 'Duty Calendar', path: '/coach/dashboard', icon: CalendarIcon },
+    { name: 'PT', path: '/pt', icon: Activity },
     { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
+    { name: 'Shop', path: '/shop', icon: ShoppingCart },
+    { name: 'AI Coach', path: '/coach', icon: Brain },
+    { name: 'Contact', path: '/contact', icon: Phone },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 

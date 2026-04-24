@@ -157,6 +157,37 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["coachId", "month", "doneDays"]
+    },
+    "LeaderboardEntry": {
+      "title": "Global Leaderboard Entry",
+      "description": "Top lift record for a user and exercise.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userImage": { "type": "string", "format": "uri" },
+        "gender": { "type": "string", "enum": ["Male", "Female"] },
+        "exerciseName": { "type": "string" },
+        "weight": { "type": "number" },
+        "reps": { "type": "number" },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "exerciseName", "weight", "date"]
+    },
+    "PersonalRecord": {
+      "title": "Personal Record Log",
+      "description": "Detailed log of a record-breaking lift.",
+      "type": "object",
+      "properties": {
+        "exerciseName": { "type": "string" },
+        "weight": { "type": "number" },
+        "reps": { "type": "number" },
+        "videoUrl": { "type": "string", "format": "uri" },
+        "date": { "type": "string", "format": "date-time" },
+        "day": { "type": "string" }
+      },
+      "required": ["exerciseName", "weight", "date"]
     }
   },
   "firestore": {
@@ -195,6 +226,14 @@
     "/coach_calendars/{calendarId}": {
       "schema": "CoachCalendar",
       "description": "Coach-specific monthly attendance calendars."
+    },
+    "/leaderboard/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Global strength rankings."
+    },
+    "/records/{userId}/logs/{recordId}": {
+      "schema": "PersonalRecord",
+      "description": "User's personal record history."
     }
   }
 }

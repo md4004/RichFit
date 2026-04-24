@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { useAuth } from '@/AuthContext';
 import { db, collection, onSnapshot, query, where, orderBy, OperationType, handleFirestoreError } from '@/firebase';
-import { TrendingUp, ArrowLeft, Activity, Calendar } from 'lucide-react';
+import { TrendingUp, ArrowLeft, Activity, Calendar, Video } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function PersonalRecords() {
@@ -65,12 +65,32 @@ export default function PersonalRecords() {
                   </div>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="font-headline text-4xl font-black text-primary uppercase italic tracking-tighter">
-                  {record.weight} KG
-                  {record.reps && <span className="text-xl text-white ml-2">x{record.reps}</span>}
-                </span>
-              </div>
+                <div className="flex items-center gap-6">
+                  <div className="text-right flex items-center gap-4">
+                    <div className="text-right">
+                      <span className="font-headline text-4xl font-black text-primary uppercase italic tracking-tighter">
+                        {record.weight} KG
+                        {record.reps && <span className="text-xl text-white ml-2">x{record.reps}</span>}
+                      </span>
+                    </div>
+
+                    {record.videoUrl && (
+                      <div className="flex items-center gap-2 border-l border-zinc-800 pl-4">
+                        <a 
+                          href={record.videoUrl} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="flex items-center group"
+                          title="View Execution Evidence"
+                        >
+                          <div className="w-8 h-8 bg-black/50 text-primary rounded flex items-center justify-center border border-primary/30 group-hover:bg-primary group-hover:text-black transition-all">
+                            <Video className="w-4 h-4" />
+                          </div>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
             </div>
           ))}
         </div>

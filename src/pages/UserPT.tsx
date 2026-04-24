@@ -18,7 +18,11 @@ import {
   Trophy,
   Plus,
   Trash2,
-  X
+  X,
+  Video,
+  Upload,
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -36,7 +40,11 @@ import {
   getDoc, 
   setDoc, 
   updateDoc,
-  getDocs
+  getDocs,
+  storage,
+  ref,
+  uploadBytes,
+  getDownloadURL
 } from '@/firebase';
 import { useAuth } from '@/AuthContext';
 import { Exercise, WorkoutCalendar, UserLog } from '@/types';
@@ -77,6 +85,7 @@ export default function UserPT() {
   const [showRoutineModal, setShowRoutineModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<WorkoutCalendar | null>(null);
   const [selectedDayForRoutine, setSelectedDayForRoutine] = useState<string>('Monday');
+  const [videoUploading, setVideoUploading] = useState<string | null>(null);
 
   // Fetch Weekly Schedule (Protocol)
   useEffect(() => {
@@ -217,22 +226,29 @@ export default function UserPT() {
             exerciseName: ex.name,
             weight: bestSet.weight,
             reps: bestSet.reps,
+            videoUrl: ex.videoUrl || null,
             date: new Date().toISOString(),
             day: format(selectedDate, 'EEEE')
           });
 
-          // Update Global Leaderboard
+          // Update Global Leaderboard (Only if better or equal with new video)
           const leaderboardId = `${ex.name.replace(/\s+/g, '_').toLowerCase()}_${user.uid}`;
-          await setDoc(doc(db, 'leaderboard', leaderboardId), {
-            userId: user.uid,
-            userName: profile?.name || 'Anonymous Member',
-            userImage: profile?.image || null,
-            gender: profile?.gender || 'Male',
-            exerciseName: ex.name,
-            weight: bestSet.weight,
-            reps: bestSet.reps,
-            date: new Date().toISOString()
-          }, { merge: true });
+          const currentEntrySnap = await getDoc(doc(db, 'leaderboard', leaderboardId));
+          const currentEntry = currentEntrySnap.exists() ? currentEntrySnap.data() : null;
+          
+          if (!currentEntry || bestSet.weight > currentEntry.weight || (bestSet.weight === currentEntry.weight && (bestSet.reps || 0) >= (currentEntry.reps || 0))) {
+            await setDoc(doc(db, 'leaderboard', leaderboardId), {
+              userId: user.uid,
+              userName: profile?.name || 'Anonymous Member',
+              userImage: profile?.image || null,
+              gender: profile?.gender || 'Male',
+              exerciseName: ex.name,
+              weight: bestSet.weight,
+              reps: bestSet.reps,
+              videoUrl: ex.videoUrl || currentEntry?.videoUrl || null,
+              date: new Date().toISOString()
+            }, { merge: true });
+          }
         }
       }
 
@@ -305,6 +321,53 @@ export default function UserPT() {
         }
       };
     });
+  };
+
+  const handleVideoUpload = async (exerciseName: string, file: File) => {
+    if (!user) return;
+    
+    if (file.size > 50 * 1024 * 1024) {
+      alert("Video session too large. Maximum size is 50MB.");
+      return;
+    }
+
+    setVideoUploading(exerciseName);
+    try {
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const storageRef = ref(storage, `users/${user.uid}/videos/${dateStr}_${exerciseName.replace(/\s+/g, '_')}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      
+      setCurrentLog(prev => {
+        const newLog: UserLog = prev || {
+          id: dateStr,
+          userId: user.uid,
+          date: dateStr,
+          exercises: [],
+          updatedAt: new Date().toISOString()
+        };
+
+        const exerciseIdx = newLog.exercises.findIndex(e => e.name === exerciseName);
+        if (exerciseIdx === -1) {
+          newLog.exercises.push({
+            name: exerciseName,
+            sets: [],
+            videoUrl: url
+          });
+        } else {
+          newLog.exercises[exerciseIdx] = { ...newLog.exercises[exerciseIdx], videoUrl: url };
+        }
+
+        return { ...newLog, updatedAt: new Date().toISOString() };
+      });
+
+      alert('Execution intel uploaded successfully.');
+    } catch (error) {
+      console.error('Video upload error:', error);
+      alert('Video upload failed. Check tactical connectivity.');
+    } finally {
+      setVideoUploading(null);
+    }
   };
 
   const monthDays = eachDayOfInterval({
@@ -504,7 +567,19 @@ export default function UserPT() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {log.exercises.map((ex, i) => (
                       <div key={i} className="space-y-2">
-                        <h4 className="font-headline font-bold text-white uppercase text-xs italic">{ex.name}</h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-headline font-bold text-white uppercase text-xs italic">{ex.name}</h4>
+                          {ex.videoUrl && (
+                            <a 
+                              href={ex.videoUrl} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="text-primary hover:text-white transition-colors"
+                            >
+                              <Video className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           {ex.sets.map((s, si) => (
                             <div key={si} className="bg-zinc-900 px-2 py-1 border border-zinc-800">
@@ -616,15 +691,49 @@ export default function UserPT() {
                                 <p className="font-headline text-[10px] text-primary uppercase font-bold">{ex.reps} Target Reps</p>
                               </div>
                             </div>
-                            <a 
-                              href={EXERCISES.find(e => e.name === ex.name)?.video} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="flex items-center gap-2 text-zinc-500 hover:text-primary transition-all font-headline font-black uppercase text-[10px]"
-                            >
-                              <PlayCircle className="w-4 h-4" />
-                              View Form
-                            </a>
+                            <div className="flex gap-4">
+                              <a 
+                                href={EXERCISES.find(e => e.name === ex.name)?.video} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="flex items-center gap-2 text-zinc-500 hover:text-primary transition-all font-headline font-black uppercase text-[10px]"
+                              >
+                                <PlayCircle className="w-4 h-4" />
+                                Form Guide
+                              </a>
+
+                              <label className="flex items-center gap-2 text-zinc-500 hover:text-primary transition-all font-headline font-black uppercase text-[10px] cursor-pointer">
+                                {videoUploading === ex.name ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : logEx?.videoUrl ? (
+                                  <CheckCircle2 className="w-4 h-4 text-primary" />
+                                ) : (
+                                  <Upload className="w-4 h-4" />
+                                )}
+                                {videoUploading === ex.name ? "UPLOADING..." : logEx?.videoUrl ? "INTEL LOGGED" : "UPLOAD EXECUTION"}
+                                <input 
+                                  type="file" 
+                                  accept="video/*" 
+                                  className="hidden" 
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleVideoUpload(ex.name, file);
+                                  }}
+                                />
+                              </label>
+
+                              {logEx?.videoUrl && (
+                                <a 
+                                  href={logEx.videoUrl} 
+                                  target="_blank" 
+                                  rel="noreferrer"
+                                  className="flex items-center gap-2 text-primary hover:text-white transition-all font-headline font-black uppercase text-[10px]"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  VIEW CLIP
+                                </a>
+                              )}
+                            </div>
                           </div>
 
                           {/* Sets Logging Grid */}

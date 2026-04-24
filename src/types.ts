@@ -63,6 +63,7 @@ export interface Exercise {
   reps?: string;
   notes?: string;
   weightLifted?: number;
+  videoUrl?: string;
 }
 
 export interface WorkoutCalendar {
@@ -85,6 +86,7 @@ export interface UserLog {
       weight: number;
       reps?: number;
     }[];
+    videoUrl?: string;
   }[];
   updatedAt: string;
 }
