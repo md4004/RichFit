@@ -12,7 +12,7 @@ import {
   isAndroidDevice
 } from '@/lib/androidFramework';
 
-const CURRENT_VERSION = '1.0.2';
+const CURRENT_VERSION = '1.0.3';
 const VERSION_JSON_URL = 'https://richfit-236411176275.us-west1.run.app/version.json';
 const G_DRIVE_LINK = 'https://drive.google.com/uc?export=download&id=19u4sZ1HgXLumIEhoy17Hct5zGLQFkr2S';
 
