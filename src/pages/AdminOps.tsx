@@ -502,39 +502,37 @@ export default function AdminOps() {
                   <input name="subscriptionEnd" value={formData.subscriptionEnd} onChange={handleInputChange} required className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" type="date" />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Weight (KG)</label>
-                    <input name="weight" type="number" value={formData.weight} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Height (CM)</label>
-                    <input name="height" type="number" value={formData.height} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Gender</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setFormData({...formData, gender: 'Male'})}
-                        className={cn(
-                          "py-3 font-headline font-black uppercase text-xs transition-all border-2",
-                          formData.gender === 'Male' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
-                        )}
-                      >
-                        Male
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setFormData({...formData, gender: 'Female'})}
-                        className={cn(
-                          "py-3 font-headline font-black uppercase text-xs transition-all border-2",
-                          formData.gender === 'Female' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
-                        )}
-                      >
-                        Female
-                      </button>
-                    </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Weight (KG)</label>
+                  <input name="weight" type="number" value={formData.weight} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Height (CM)</label>
+                  <input name="height" type="number" value={formData.height} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Gender</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => setFormData({...formData, gender: 'Male'})}
+                      className={cn(
+                        "py-3 font-headline font-black uppercase text-xs transition-all border-2",
+                        formData.gender === 'Male' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
+                      )}
+                    >
+                      Male
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setFormData({...formData, gender: 'Female'})}
+                      className={cn(
+                        "py-3 font-headline font-black uppercase text-xs transition-all border-2",
+                        formData.gender === 'Female' ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-600"
+                      )}
+                    >
+                      Female
+                    </button>
                   </div>
                 </div>
 

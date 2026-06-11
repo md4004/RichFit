@@ -325,20 +325,41 @@ export default function AdminShop() {
                 
                 <h3 className="font-headline text-xl font-bold uppercase text-white mb-1 truncate">{product.name}</h3>
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-[10px] text-zinc-500 font-mono">SKU: {product.sku}</p>
-                  <p className="text-primary font-black font-headline">${product.price.toFixed(2)}</p>
+                  <div>
+                    <p className="text-[10px] text-zinc-500 font-mono">SKU: {product.sku}</p>
+                    <p className={cn(
+                      "text-[10px] font-headline font-bold uppercase mt-1",
+                      product.stock <= 5 ? "text-red-500 animate-pulse" : "text-zinc-400"
+                    )}>
+                      STOCKED: {product.stock} UNITS {product.stock === 0 && "(OUT OF STOCK)"}
+                    </p>
+                  </div>
+                  <p className="text-primary font-black font-headline text-lg">${product.price.toFixed(2)}</p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button 
                     onClick={() => {
                       setTransactionConfig({ product, type: 'sale' });
                       setTransactionQty(1);
                     }}
-                    className="bg-primary text-black font-headline font-black text-[10px] uppercase py-3 hover:bg-white transition-all flex items-center justify-center gap-2"
+                    disabled={product.stock <= 0}
+                    className="bg-primary text-black font-headline font-black text-[10px] uppercase py-3 hover:bg-white transition-all flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={product.stock <= 0 ? "No remaining items to sell" : "Record item sale"}
                   >
                     <DollarSign className="w-3 h-3" />
                     Record Sale
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setTransactionConfig({ product, type: 'restock' });
+                      setTransactionQty(1);
+                    }}
+                    className="bg-zinc-800 text-white font-headline font-black text-[10px] uppercase py-3 hover:bg-primary hover:text-black transition-all flex items-center justify-center gap-1"
+                    title="Add units to stock"
+                  >
+                    <Package className="w-3 h-3" />
+                    Restock
                   </button>
                 </div>
 
@@ -357,7 +378,46 @@ export default function AdminShop() {
           <div className="p-6 border-b border-zinc-800">
             <h2 className="font-headline text-2xl font-black uppercase text-white">Transaction History</h2>
           </div>
-          <div className="overflow-x-auto">
+          
+          {/* Mobile Layout (cards) */}
+          <div className="block md:hidden divide-y divide-zinc-800">
+            {transactions.map((t) => (
+              <div key={t.id} className="p-4 space-y-2 hover:bg-zinc-800/20 transition-colors relative group">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-bold text-white uppercase text-xs leading-tight">{t.productName}</h4>
+                    <p className="text-[9px] text-zinc-500 font-mono mt-1">
+                      {new Date(t.date).toLocaleString()}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => handleDeleteTransaction(t.id)}
+                    className="p-1 text-zinc-500 hover:text-red-500 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                  <span className={cn(
+                    "text-[10px] font-black uppercase flex items-center gap-1",
+                    t.type === 'sale' ? "text-green-500" : "text-blue-500"
+                  )}>
+                    {t.type === 'sale' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                    {t.type} (x{t.quantity})
+                  </span>
+                  <span className="font-mono text-primary font-bold text-xs">
+                    {t.amount > 0 ? `$${t.amount.toFixed(2)}` : '—'}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {transactions.length === 0 && (
+              <p className="p-8 text-center text-zinc-600 font-headline uppercase text-xs">No active transactions</p>
+            )}
+          </div>
+
+          {/* Desktop Layout (table) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left font-headline">
               <thead>
                 <tr className="bg-black text-[10px] text-zinc-500 uppercase tracking-[0.2em]">
@@ -409,8 +469,8 @@ export default function AdminShop() {
 
       {/* Add Product Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
-          <div className="bg-zinc-900 w-full max-w-2xl border-t-8 border-primary p-8 relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-zinc-900 w-full max-w-2xl border-t-8 border-primary p-5 md:p-8 relative my-8 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200 shadow-2xl">
             <button 
               onClick={() => setShowAddModal(false)}
               className="absolute top-4 right-4 text-zinc-500 hover:text-white"
@@ -418,11 +478,11 @@ export default function AdminShop() {
               <X className="w-6 h-6" />
             </button>
             
-            <h3 className="font-headline font-black uppercase text-2xl text-white mb-8">New Inventory Entry</h3>
+            <h3 className="font-headline font-black uppercase text-2xl text-white mb-6">New Inventory Entry</h3>
             
-            <form onSubmit={handleAddProduct} className="space-y-6">
-              <div className="flex flex-col items-center gap-6 mb-8 p-6 bg-black/40 border border-zinc-800">
-                <div className="w-32 h-32 bg-black border-2 border-dashed border-zinc-800 flex items-center justify-center relative group overflow-hidden">
+            <form onSubmit={handleAddProduct} className="space-y-6 pb-6">
+              <div className="flex flex-col items-center gap-4 mb-4 p-4 bg-black/40 border border-zinc-800">
+                <div className="w-24 h-24 bg-black border-2 border-dashed border-zinc-800 flex items-center justify-center relative group overflow-hidden">
                   {formData.image ? (
                     <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
                   ) : (
@@ -442,7 +502,7 @@ export default function AdminShop() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 <div className="flex flex-col gap-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Product Name</label>
                   <input 
@@ -469,12 +529,25 @@ export default function AdminShop() {
                     required 
                     type="number" 
                     step="0.01"
-                    value={formData.price}
-                    onChange={(e) => setFormData({...formData, price: Number(e.target.value)})}
+                    min="0"
+                    value={formData.price || ''}
+                    onChange={(e) => setFormData({...formData, price: e.target.value === '' ? 0 : Number(e.target.value)})}
                     className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" 
                   />
                 </div>
-                <div className="flex flex-col gap-2 md:col-span-1">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Initial Stock Quantity</label>
+                  <input 
+                    required 
+                    type="number" 
+                    min="0"
+                    value={formData.stock || ''}
+                    onChange={(e) => setFormData({...formData, stock: e.target.value === '' ? 0 : Number(e.target.value)})}
+                    className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" 
+                    placeholder="E.G. 100"
+                  />
+                </div>
+                <div className="flex flex-col gap-2 md:col-span-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Category</label>
                   <select 
                     value={formData.category}
@@ -491,7 +564,7 @@ export default function AdminShop() {
               <button 
                 type="submit"
                 disabled={uploading}
-                className="w-full bg-primary text-black font-headline font-black text-xl uppercase py-4 hover:bg-white transition-all"
+                className="w-full bg-primary text-black font-headline font-black text-xl uppercase py-4 hover:bg-white transition-all shadow-lg"
               >
                 Commit to Inventory
               </button>
@@ -516,13 +589,21 @@ export default function AdminShop() {
                 <input 
                   type="number"
                   min="1"
-                  value={transactionQty}
-                  onChange={(e) => setTransactionQty(Math.max(1, Number(e.target.value)))}
+                  value={transactionQty || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setTransactionQty(0);
+                    } else {
+                      const num = parseInt(val, 10);
+                      setTransactionQty(isNaN(num) ? 0 : num);
+                    }
+                  }}
                   className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3 text-xl"
                 />
                 {transactionConfig.type === 'sale' && (
                   <p className="text-[10px] text-zinc-500 font-headline uppercase mt-1">
-                    Total Revenue: <span className="text-primary font-bold">${(transactionConfig.product.price * transactionQty).toFixed(2)}</span>
+                    Total Revenue: <span className="text-primary font-bold">${(transactionConfig.product.price * (transactionQty || 0)).toFixed(2)}</span>
                   </p>
                 )}
               </div>

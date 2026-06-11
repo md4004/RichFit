@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { Bell, Shield, Smartphone, ArrowRight, CheckCircle2, XCircle, AlertCircle, Server, RefreshCw, Download } from 'lucide-react';
+import { Bell, Shield, Smartphone, ArrowRight, CheckCircle2, XCircle, AlertCircle, Server, RefreshCw, Download, Volume2, Sparkles, Share2, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { 
+  triggerHaptic, 
+  requestScreenWakeLock, 
+  releaseScreenWakeLock, 
+  setAndroidAppBadge, 
+  clearAndroidAppBadge, 
+  nativeAndroidShare,
+  isAndroidDevice
+} from '@/lib/androidFramework';
 
 const CURRENT_VERSION = '1.0.2';
 const VERSION_JSON_URL = 'https://richfit-236411176275.us-west1.run.app/version.json';
@@ -21,6 +30,69 @@ export default function Settings() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateDetails, setUpdateDetails] = useState<{ version: string; whatsNew: string[] } | null>(null);
   const [updateMessage, setUpdateMessage] = useState<string>('');
+
+  // Android Specific States
+  const [wakeLockActive, setWakeLockActive] = useState(
+    typeof window !== 'undefined' ? localStorage.getItem('android_wake_lock_enabled') === 'true' : false
+  );
+  const [hapticMode, setHapticMode] = useState(
+    typeof window !== 'undefined' ? localStorage.getItem('android_haptic_mode') || 'TACTICAL' : 'TACTICAL'
+  );
+  const [appBadgeCount, setAppBadgeCount] = useState(3);
+
+  const handleToggleWakeLock = async () => {
+    const nextVal = !wakeLockActive;
+    setWakeLockActive(nextVal);
+    localStorage.setItem('android_wake_lock_enabled', nextVal ? 'true' : 'false');
+    if (nextVal) {
+      const ok = await requestScreenWakeLock();
+      if (ok) {
+        triggerHaptic(40);
+      }
+    } else {
+      await releaseScreenWakeLock();
+      triggerHaptic([15, 10]);
+    }
+  };
+
+  const handleHapticChange = (mode: string) => {
+    setHapticMode(mode);
+    localStorage.setItem('android_haptic_mode', mode);
+    if (mode !== 'OFF') {
+      setTimeout(() => {
+        if (mode === 'LITE') triggerHaptic(10);
+        else if (mode === 'TACTICAL') triggerHaptic(25);
+        else if (mode === 'MAX') triggerHaptic(60);
+      }, 50);
+    }
+  };
+
+  const testVibration = () => {
+    if (hapticMode === 'OFF') {
+      alert("Haptic mode is set to OFF. Select LITE, TACTICAL, or MAX to test local hardware!");
+      return;
+    }
+    triggerHaptic([30, 40, 30, 40, 60]);
+  };
+
+  const updateBadge = (val: number) => {
+    const clampedVal = Math.max(0, val);
+    setAppBadgeCount(clampedVal);
+    if (clampedVal === 0) {
+      clearAndroidAppBadge();
+    } else {
+      setAndroidAppBadge(clampedVal);
+    }
+    triggerHaptic(15);
+  };
+
+  const triggerTestShare = async () => {
+    const text = `RICHFIT Protocol: Syncing active weight parameters. Iron sharpens iron!`;
+    const ok = await nativeAndroidShare("RICHFIT Athletic Sync", text);
+    if (!ok) {
+      alert(`Android Native Share sheet trigger:\n\nTitle: RICHFIT Athletic Sync\nText: ${text}`);
+    }
+  };
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -292,6 +364,149 @@ export default function Settings() {
                 </a>
               </div>
             )}
+          </div>
+        </section>
+
+        {/* Android Integration Suite */}
+        <section className="bg-zinc-900 border-t-4 border-primary p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <Smartphone className="w-6 h-6 text-primary" />
+            <h3 className="font-headline text-2xl font-black uppercase text-white">Android Framework Integration</h3>
+          </div>
+
+          <div className="space-y-6">
+            {/* Screen Wake Lock Selector */}
+            <div className="bg-black p-6 border border-zinc-800 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="space-y-1">
+                <span className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest block">Screen Wake Lock Protocol</span>
+                <span className="font-headline font-bold text-sm uppercase text-white block">Keep Screen Active During Training</span>
+                <p className="text-[10px] text-zinc-500 font-headline uppercase leading-normal">
+                  Prevents Android device from dimming or going to sleep during active training sessions in the gym.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="text-right hidden sm:block">
+                  <span className={cn("text-[10px] uppercase font-headline font-black", wakeLockActive ? "text-primary animate-pulse" : "text-zinc-500")}>
+                    {wakeLockActive ? "HOLD ACTIVE" : "RELEASED"}
+                  </span>
+                </div>
+                <button 
+                  onClick={handleToggleWakeLock}
+                  className={cn(
+                    "w-12 h-6 rounded-full relative transition-colors duration-300",
+                    wakeLockActive ? "bg-primary" : "bg-zinc-800"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300",
+                    wakeLockActive ? "left-7" : "left-1"
+                  )}></div>
+                </button>
+              </div>
+            </div>
+
+            {/* Haptic Feedback Settings */}
+            <div className="bg-black p-6 border border-zinc-800 rounded-lg">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
+                <div className="space-y-1">
+                  <span className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest block">Haptic Feedback Mode</span>
+                  <span className="font-headline font-bold text-sm uppercase text-white block">Device Vibration Levels</span>
+                  <p className="text-[10px] text-zinc-500 font-headline uppercase leading-normal">
+                    Triggers tactile vibration confirmations during fitness logging, rest periods, and navigation actions.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {['OFF', 'LITE', 'TACTICAL', 'MAX'].map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => handleHapticChange(mode)}
+                      className={cn(
+                        "font-headline font-black px-4 py-2 text-[10px] uppercase transition-all tracking-wider border",
+                        hapticMode === mode 
+                          ? "bg-primary text-black border-primary" 
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white"
+                      )}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center bg-zinc-950 p-4 border border-zinc-900 rounded">
+                <span className="text-[10px] text-zinc-500 font-headline uppercase">Test Haptic Hardware:</span>
+                <button
+                  onClick={testVibration}
+                  className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-primary text-[10px] font-headline font-black px-4 py-2 uppercase tracking-widest transition-all inline-flex items-center gap-2"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  Perform Test Buzz
+                </button>
+              </div>
+            </div>
+
+            {/* Android Launcher Badging & Native Sharing */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Badging Control */}
+              <div className="bg-black p-6 border border-zinc-800 rounded-lg flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest block mb-1">Android launcher Badging</span>
+                  <span className="font-headline font-bold text-sm uppercase text-white block mb-2">Icon Badge Counter</span>
+                  <p className="text-[10px] text-zinc-500 font-headline uppercase leading-snug mb-4">
+                    Applies numerical indicators on the app icon on Android launchers to indicate pending routines or active streaks.
+                  </p>
+                </div>
+                
+                <div className="flex items-center justify-between border-t border-zinc-900 pt-4 mt-auto">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => updateBadge(appBadgeCount - 1)}
+                      className="w-8 h-8 bg-zinc-950 border border-zinc-805 hover:bg-zinc-900 text-zinc-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="font-headline font-black text-sm text-primary w-8 text-center">{appBadgeCount}</span>
+                    <button 
+                      onClick={() => updateBadge(appBadgeCount + 1)}
+                      className="w-8 h-8 bg-zinc-950 border border-zinc-805 hover:bg-zinc-900 text-zinc-300 font-bold flex items-center justify-center cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => updateBadge(0)}
+                    className="text-[10px] text-red-500 hover:text-white font-headline font-black uppercase tracking-widest cursor-pointer"
+                  >
+                    Clear Badge
+                  </button>
+                </div>
+              </div>
+
+              {/* Native Sharing Hub */}
+              <div className="bg-black p-6 border border-zinc-800 rounded-lg flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest block mb-1">Android System Share Hub</span>
+                  <span className="font-headline font-bold text-sm uppercase text-white block mb-2">Platform Broadcast Suite</span>
+                  <p className="text-[10px] text-zinc-500 font-headline uppercase leading-snug mb-4">
+                    Launches the native Android platform share overlay to broadcast workout schedules, strength progress, or leaderboards to chat networks.
+                  </p>
+                </div>
+
+                <div className="border-t border-zinc-900 pt-4 mt-auto">
+                  <button
+                    onClick={triggerTestShare}
+                    className="w-full bg-zinc-900 hover:bg-zinc-800 text-primary border border-zinc-800 text-xs font-headline font-black py-3 px-4 uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Trigger Share Sheet
+                  </button>
+                </div>
+              </div>
+            </div>
+
           </div>
         </section>
 

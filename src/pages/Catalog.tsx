@@ -184,7 +184,7 @@ export default function Catalog() {
 
       {/* Cart Drawer */}
       {isCartOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
+        <div className="fixed inset-0 z-[100] flex justify-end">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsCartOpen(false)} />
           <div className="relative w-full max-w-md bg-zinc-900 h-full border-l-8 border-primary flex flex-col animate-in slide-in-from-right duration-300">
             <div className="p-6 border-b border-zinc-800 flex justify-between items-center">

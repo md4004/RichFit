@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { triggerHaptic, requestScreenWakeLock, releaseScreenWakeLock } from '@/lib/androidFramework';
 import { 
   db, 
   collection, 
@@ -86,6 +87,24 @@ export default function UserPT() {
   const [editingSchedule, setEditingSchedule] = useState<WorkoutCalendar | null>(null);
   const [selectedDayForRoutine, setSelectedDayForRoutine] = useState<string>('Monday');
   const [videoUploading, setVideoUploading] = useState<string | null>(null);
+
+  // Screen Wake Lock auto-acquisition for continuous active gym visual tracking
+  useEffect(() => {
+    let active = false;
+    const initWakeLock = async () => {
+      const enabled = localStorage.getItem('android_wake_lock_enabled') === 'true';
+      if (enabled) {
+        active = await requestScreenWakeLock();
+      }
+    };
+    initWakeLock();
+
+    return () => {
+      if (active) {
+        releaseScreenWakeLock();
+      }
+    };
+  }, []);
 
   // Fetch Weekly Schedule (Protocol)
   useEffect(() => {
@@ -252,6 +271,7 @@ export default function UserPT() {
         }
       }
 
+      triggerHaptic([100, 50, 100]);
       alert('Protocol logged successfully.');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `user_logs/${user.uid}/entries/${currentLog.date}`);

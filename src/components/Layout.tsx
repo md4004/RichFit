@@ -218,6 +218,11 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
                 <p className="font-headline text-xs text-zinc-500 uppercase tracking-widest">
                   {isAdmin ? 'OWNER MODE' : (isCoach ? 'COACH ACCESS' : `${profile?.tier || 'STANDARD'} ACCESS`)}
                 </p>
+                {!isAdmin && !isCoach && profile && (
+                  <p className="font-headline text-[10px] text-zinc-400 uppercase tracking-wider mt-1.5 font-bold">
+                    {profile.weight ? `${profile.weight} KG` : '--- KG'} • {profile.height ? `${profile.height} CM` : '--- CM'}
+                  </p>
+                )}
               </div>
             </div>
           </div>

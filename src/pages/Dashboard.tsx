@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Activity, ArrowRight, Bell } from 'lucide-react';
+import { Activity, ArrowRight, Bell, User as UserIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/AuthContext';
 import { db, collection, onSnapshot, query, orderBy, limit, OperationType, handleFirestoreError } from '@/firebase';
@@ -141,13 +141,13 @@ export default function Dashboard() {
 
         {/* Right Column: Status Cards */}
         <div className="md:col-span-5 space-y-6">
-          <Link to="/pt" className="block bg-primary p-8 border-l-8 border-black group hover:bg-white transition-all h-full flex flex-col justify-between">
+          <Link to="/pt" className="block bg-primary p-8 border-l-8 border-black group hover:bg-white transition-all min-h-[220px] flex flex-col justify-between">
             <div>
-              <div className="flex justify-between items-start mb-12">
+              <div className="flex justify-between items-start mb-8">
                 <span className="font-headline text-black font-black uppercase tracking-widest text-xs">Training Protocol</span>
                 <Activity className="text-black w-8 h-8" />
               </div>
-              <h3 className="font-headline text-5xl font-black text-black uppercase tracking-tighter leading-tight">
+              <h3 className="font-headline text-4xl font-black text-black uppercase tracking-tighter leading-tight">
                 VIEW YOUR <br /> PT PROGRAM
               </h3>
             </div>
@@ -156,6 +156,44 @@ export default function Dashboard() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform" />
             </div>
           </Link>
+
+          {/* Biometric Stats Card */}
+          <div className="bg-zinc-950 p-6 border-l-4 border-primary">
+            <h3 className="font-headline text-lg font-black uppercase text-white mb-4 flex items-center gap-2">
+              <UserIcon className="w-5 h-5 text-primary" />
+              My Biometric Profile
+            </h3>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-900/60 p-4 border border-zinc-800">
+                <span className="text-[10px] text-zinc-500 font-headline font-bold uppercase tracking-widest block">Body Weight</span>
+                <span className="font-headline text-2xl font-black text-primary block mt-1">
+                  {profile?.weight ? `${profile.weight} KG` : '--- KG'}
+                </span>
+              </div>
+              <div className="bg-zinc-900/60 p-4 border border-zinc-800">
+                <span className="text-[10px] text-zinc-500 font-headline font-bold uppercase tracking-widest block">Body Height</span>
+                <span className="font-headline text-2xl font-black text-white block mt-1">
+                  {profile?.height ? `${profile.height} CM` : '--- CM'}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2 text-xs">
+              <div className="flex justify-between py-2 border-b border-zinc-950">
+                <span className="text-zinc-500 uppercase font-headline">Training Focus</span>
+                <span className="text-white font-bold uppercase font-headline">{profile?.focus || 'GENERAL ATHLETICS'}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-zinc-950">
+                <span className="text-zinc-500 uppercase font-headline">Program Access</span>
+                <span className="text-primary font-bold uppercase font-headline">{profile?.tier || 'STANDARD'} ACCESS</span>
+              </div>
+              <div className="flex justify-between py-2">
+                <span className="text-zinc-500 uppercase font-headline">Gender Registered</span>
+                <span className="text-white font-bold uppercase font-headline">{profile?.gender || 'NOT SPECIFIED'}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

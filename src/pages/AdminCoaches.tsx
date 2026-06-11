@@ -269,8 +269,8 @@ export default function AdminCoaches() {
 
       {/* Add Coach Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
-          <div className="bg-zinc-900 border-t-8 border-primary p-8 w-full max-w-md animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-zinc-900 border-t-8 border-primary p-6 md:p-8 w-full max-w-md my-8 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-headline text-2xl font-black uppercase italic text-white">Induct Coach</h3>
               <button onClick={() => setShowAddModal(false)} className="text-zinc-500 hover:text-white">
