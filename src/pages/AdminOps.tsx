@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle, RotateCcw, UserX } from 'lucide-react';
-import { db, collection, onSnapshot, query, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
+import { db, collection, onSnapshot, query, where, getDocs, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
 import { Member } from '@/types';
 import { cn } from '@/lib/utils';
+import { useSearchParams } from 'react-router-dom';
 
 type ViewState = 'list' | 'add' | 'details';
 
@@ -20,7 +21,11 @@ export default function AdminOps() {
   const [showRenewModal, setShowRenewModal] = useState<Member | null>(null);
   const [renewMonths, setRenewMonths] = useState<1 | 3>(1);
   const [renewAmount, setRenewAmount] = useState(40);
-  const [statusFilter, setStatusFilter] = useState<'current' | 'active' | 'expired' | 'inactive' | 'all'>('current');
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get('filter');
+  const [statusFilter, setStatusFilter] = useState<'current' | 'active' | 'expired' | 'inactive' | 'all'>(
+    initialFilter === 'active' || initialFilter === 'expired' || initialFilter === 'inactive' || initialFilter === 'all' ? initialFilter : 'current'
+  );
   const [isEditing, setIsEditing] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
@@ -192,11 +197,25 @@ export default function AdminOps() {
     }
   };
 
+  // Deletes the subscription alerts tied to a member's current end date
+  // (member alerts, plus admin alerts in both the old and the per-admin ID format)
+  const clearSubscriptionAlerts = async (member: Member) => {
+    if (!member.subscriptionEnd) return;
+    const key = `${member.id}_${member.subscriptionEnd}`;
+    const memberIds = ['sub_alert', 'sub_today', 'sub_expired'].map(p => `${p}_${key}`);
+    const adminPrefixes = ['admin_sub_alert', 'admin_sub_today', 'admin_sub_expired'].map(p => `${p}_${key}`);
+    const mine = await getDocs(query(collection(db, 'notifications'), where('userId', '==', auth.currentUser?.uid || '')));
+    const adminIds = mine.docs.map(d => d.id).filter(id => adminPrefixes.some(p => id === p || id.startsWith(`${p}_`)));
+    await Promise.all([...memberIds, ...adminIds].map(id => deleteDoc(doc(db, 'notifications', id)).catch(() => {})));
+  };
+
   // Terminate never deletes: the member is marked inactive and all history is kept
   const handleTerminateMember = async (id: string) => {
     try {
       const terminatedAt = new Date().toISOString();
       await updateDoc(doc(db, 'users', id), { status: 'inactive', terminatedAt });
+      const member = members.find(m => m.id === id);
+      if (member) await clearSubscriptionAlerts(member);
       if (selectedMember?.id === id) {
         setSelectedMember({ ...selectedMember, status: 'inactive', terminatedAt });
       }
@@ -239,6 +258,7 @@ export default function AdminOps() {
       const subscriptionEnd = newEnd.toISOString().split('T')[0];
       
       await updateDoc(doc(db, 'users', showRenewModal.id), { subscriptionEnd, status: 'active' });
+      await clearSubscriptionAlerts(showRenewModal);
       
       // Record renewal income
       await addDoc(collection(db, 'transactions'), {
@@ -288,19 +308,29 @@ export default function AdminOps() {
     }
   };
 
+  // Whole days between today and the end date, both read as plain local dates
   const calculateDaysLeft = (subEnd?: string) => {
     if (!subEnd) return null;
-    const end = new Date(subEnd);
+    const [y, m, d] = subEnd.slice(0, 10).split('-').map(Number);
+    const end = new Date(y, m - 1, d);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const diffTime = end.getTime() - today.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.round((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const daysLabel = (subEnd?: string) => {
+    const days = calculateDaysLeft(subEnd);
+    if (days === null) return 'No Sub';
+    if (days > 1) return `${days} Days Left`;
+    if (days === 1) return 'Ends Tomorrow';
+    if (days === 0) return 'Ends Today';
+    return `Expired ${-days} Day${days === -1 ? '' : 's'} Ago`;
   };
 
   const memberStatus = (m: Member): 'active' | 'expired' | 'inactive' => {
     if (m.status === 'inactive') return 'inactive';
     const days = calculateDaysLeft(m.subscriptionEnd);
-    return days !== null && days <= 0 ? 'expired' : 'active';
+    return days !== null && days < 0 ? 'expired' : 'active';
   };
 
   const filteredMembers = members
@@ -463,7 +493,7 @@ export default function AdminOps() {
                             <div 
                               className={cn(
                                 "w-full h-full",
-                                (calculateDaysLeft(member.subscriptionEnd) ?? 0) <= 0 ? "bg-red-500" :
+                                (calculateDaysLeft(member.subscriptionEnd) ?? 0) < 0 ? "bg-red-500" :
                                 (calculateDaysLeft(member.subscriptionEnd) ?? 0) <= 3 ? "bg-orange-500" :
                                 "bg-primary"
                               )}
@@ -487,7 +517,7 @@ export default function AdminOps() {
                           )}
                         </div>
                         <p className="text-zinc-500 text-[10px] font-headline uppercase tracking-widest">
-                          {member.tier} Tier • {member.subscriptionEnd ? `${calculateDaysLeft(member.subscriptionEnd)} Days Left` : 'No Sub'}
+                          {member.tier} Tier • {daysLabel(member.subscriptionEnd)}
                         </p>
                       </div>
                       <div className="text-right hidden md:block">
