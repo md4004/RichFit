@@ -153,7 +153,7 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
                     notifications.map((n) => (
                       <div 
                         key={n.id} 
-                        onClick={() => markAsRead(n.id)}
+                        onClick={() => { markAsRead(n.id); if (n.url) { setShowNotifications(false); navigate(n.url); } }}
                         className={cn(
                           "p-4 border-b border-zinc-800 hover:bg-zinc-800 transition-colors cursor-pointer relative group",
                           !n.read && "bg-primary/5 border-l-2 border-primary"

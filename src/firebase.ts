@@ -9,7 +9,10 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
-export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+export const messaging = typeof window !== 'undefined' && 'serviceWorker' in navigator ? getMessaging(app) : null;
+
+// Web Push public key (Firebase Console > Project settings > Cloud Messaging > Web Push certificates)
+export const VAPID_KEY = 'BLjRBqCW8QafvrCl3BAzyl-N8tDJ6dmu2khL_GWiuJC1JT0OnlEkIkjAQAFSdnITnLuzNNt3sRSSmBMH2rZKe_A';
 
 // Secondary app for creating users without signing them in
 const secondaryApp = getApps().length > 1 ? getApp('secondary') : initializeApp(firebaseConfig, 'secondary');

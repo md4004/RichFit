@@ -7,6 +7,7 @@ export interface Product {
   image: string;
   sku: string;
   stock: number;
+  minStock?: number; // admin is alerted when stock drops to this level (unset = no alert)
   isBestSeller?: boolean;
 }
 
