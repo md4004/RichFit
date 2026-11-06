@@ -23,6 +23,9 @@ export interface Member {
   phone?: string;
   address?: string;
   subscriptionEnd?: string;
+  status?: 'active' | 'inactive';
+  terminatedAt?: string;
+  reactivatedAt?: string;
   medical?: string;
   role?: 'admin' | 'user' | 'coach';
   email?: string;

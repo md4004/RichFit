@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle } from 'lucide-react';
+import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle, RotateCcw, UserX } from 'lucide-react';
 import { db, collection, onSnapshot, query, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
 import { Member } from '@/types';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,8 @@ export default function AdminOps() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showRenewModal, setShowRenewModal] = useState<Member | null>(null);
   const [renewMonths, setRenewMonths] = useState<1 | 3>(1);
+  const [renewAmount, setRenewAmount] = useState(40);
+  const [statusFilter, setStatusFilter] = useState<'current' | 'active' | 'expired' | 'inactive' | 'all'>('current');
   const [isEditing, setIsEditing] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
 
@@ -35,7 +37,8 @@ export default function AdminOps() {
     image: '',
     phone: '',
     address: '',
-    subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    initialPayment: 40
   });
 
   useEffect(() => {
@@ -141,6 +144,7 @@ export default function AdminOps() {
         phone: formData.phone,
         address: formData.address,
         subscriptionEnd: formData.subscriptionEnd,
+        status: 'active',
         role: 'user',
         createdAt: new Date().toISOString(),
         image: formData.image || `https://picsum.photos/seed/${formData.name}/400/400`
@@ -149,16 +153,20 @@ export default function AdminOps() {
       console.log("Saving member profile:", memberProfile);
       await setDoc(doc(db, 'users', uid), memberProfile);
 
-      // Record initial subscription income
-      await addDoc(collection(db, 'transactions'), {
-        productId: 'subscription',
-        productName: 'Initial Subscription',
-        amount: 40,
-        type: 'sale',
-        quantity: 1,
-        date: new Date().toISOString(),
-        category: 'Subscription'
-      });
+      // Record initial subscription income (amount entered by the admin)
+      const initialPayment = Number(formData.initialPayment);
+      if (initialPayment > 0) {
+        await addDoc(collection(db, 'transactions'), {
+          productId: 'subscription',
+          productName: `Initial Subscription - ${formData.name}`,
+          memberId: uid,
+          amount: initialPayment,
+          type: 'sale',
+          quantity: 1,
+          date: new Date().toISOString(),
+          category: 'Subscription'
+        });
+      }
 
       setFormData({
         name: '',
@@ -173,7 +181,8 @@ export default function AdminOps() {
         image: '',
         phone: '',
         address: '',
-        subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        initialPayment: 40
       });
       setView('list');
       alert('Personnel Induction Successful.');
@@ -183,17 +192,37 @@ export default function AdminOps() {
     }
   };
 
-  const handleDeleteMember = async (id: string) => {
+  // Terminate never deletes: the member is marked inactive and all history is kept
+  const handleTerminateMember = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'users', id));
+      const terminatedAt = new Date().toISOString();
+      await updateDoc(doc(db, 'users', id), { status: 'inactive', terminatedAt });
       if (selectedMember?.id === id) {
-        setView('list');
-        setSelectedMember(null);
+        setSelectedMember({ ...selectedMember, status: 'inactive', terminatedAt });
       }
       setShowDeleteConfirm(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${id}`);
     }
+  };
+
+  const handleReactivateMember = async (member: Member) => {
+    try {
+      const reactivatedAt = new Date().toISOString();
+      await updateDoc(doc(db, 'users', member.id), { status: 'active', reactivatedAt });
+      const updated = { ...member, status: 'active' as const, reactivatedAt };
+      setSelectedMember(updated);
+      // Reactivating usually means a new subscription: open the renewal dialog
+      openRenewModal(updated);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${member.id}`);
+    }
+  };
+
+  const openRenewModal = (member: Member) => {
+    setRenewMonths(1);
+    setRenewAmount(40);
+    setShowRenewModal(member);
   };
 
   const handleRenewSubscription = async () => {
@@ -209,19 +238,23 @@ export default function AdminOps() {
       
       const subscriptionEnd = newEnd.toISOString().split('T')[0];
       
-      await updateDoc(doc(db, 'users', showRenewModal.id), { subscriptionEnd });
+      await updateDoc(doc(db, 'users', showRenewModal.id), { subscriptionEnd, status: 'active' });
       
       // Record renewal income
       await addDoc(collection(db, 'transactions'), {
         productId: 'subscription_renewal',
-        productName: `Subscription Renewal (${renewMonths} Month${renewMonths > 1 ? 's' : ''})`,
-        amount: 40 * renewMonths,
+        productName: `Subscription Renewal (${renewMonths} Month${renewMonths > 1 ? 's' : ''}) - ${showRenewModal.name}`,
+        memberId: showRenewModal.id,
+        amount: Number(renewAmount),
         type: 'sale',
         quantity: renewMonths,
         date: new Date().toISOString(),
         category: 'Subscription'
       });
       
+      if (selectedMember?.id === showRenewModal.id) {
+        setSelectedMember({ ...selectedMember, subscriptionEnd, status: 'active' });
+      }
       setShowRenewModal(null);
       alert('Subscription Renewed Successfully.');
     } catch (error) {
@@ -255,10 +288,27 @@ export default function AdminOps() {
     }
   };
 
+  const calculateDaysLeft = (subEnd?: string) => {
+    if (!subEnd) return null;
+    const end = new Date(subEnd);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = end.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const memberStatus = (m: Member): 'active' | 'expired' | 'inactive' => {
+    if (m.status === 'inactive') return 'inactive';
+    const days = calculateDaysLeft(m.subscriptionEnd);
+    return days !== null && days <= 0 ? 'expired' : 'active';
+  };
+
   const filteredMembers = members
+    .filter(m => statusFilter === 'all' || (statusFilter === 'current' ? memberStatus(m) !== 'inactive' : memberStatus(m) === statusFilter))
     .filter(m => 
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      m.email?.toLowerCase().includes(searchQuery.toLowerCase())
+      m.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.phone?.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .sort((a, b) => {
       if (sortBy === 'subEnd') {
@@ -268,15 +318,6 @@ export default function AdminOps() {
       }
       return a.name.localeCompare(b.name);
     });
-
-  const calculateDaysLeft = (subEnd?: string) => {
-    if (!subEnd) return null;
-    const end = new Date(subEnd);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffTime = end.getTime() - today.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
 
   const stats = {
     today: members.filter(m => {
@@ -289,7 +330,10 @@ export default function AdminOps() {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       return created >= weekAgo;
-    }).length
+    }).length,
+    active: members.filter(m => memberStatus(m) === 'active').length,
+    expired: members.filter(m => memberStatus(m) === 'expired').length,
+    inactive: members.filter(m => memberStatus(m) === 'inactive').length
   };
 
   return (
@@ -341,7 +385,11 @@ export default function AdminOps() {
             </div>
             <div className="bg-zinc-900 p-6 border-t-4 border-zinc-700">
               <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-2">Total Active</p>
-              <p className="text-4xl font-black text-white font-headline">{members.length.toString().padStart(2, '0')}</p>
+              <p className="text-4xl font-black text-white font-headline">{stats.active.toString().padStart(2, '0')}</p>
+            </div>
+            <div className="bg-zinc-900 p-6 border-t-4 border-red-500">
+              <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-2">Expired / Inactive</p>
+              <p className="text-4xl font-black text-white font-headline">{stats.expired.toString().padStart(2, '0')} <span className="text-zinc-600 text-2xl">/ {stats.inactive.toString().padStart(2, '0')}</span></p>
             </div>
           </div>
 
@@ -350,13 +398,24 @@ export default function AdminOps() {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input 
                   type="text" 
-                  placeholder="SEARCH BY NAME OR EMAIL..." 
+                  placeholder="SEARCH BY NAME, EMAIL OR PHONE..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-black border-none focus:ring-1 focus:ring-primary text-white font-headline text-xs uppercase py-3 pl-12 pr-4"
                 />
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
+              <div className="flex gap-2 w-full md:w-auto flex-wrap">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  className="bg-black border border-zinc-800 text-zinc-300 font-headline text-xs uppercase font-bold px-4 py-3 flex-1 md:flex-none"
+                >
+                  <option value="current">Current ({stats.active + stats.expired})</option>
+                  <option value="active">Active ({stats.active})</option>
+                  <option value="expired">Expired ({stats.expired})</option>
+                  <option value="inactive">Inactive / Former ({stats.inactive})</option>
+                  <option value="all">All ({members.length})</option>
+                </select>
                 <button 
                   onClick={() => setSortBy(sortBy === 'name' ? 'subEnd' : 'name')}
                   className="flex items-center gap-2 text-zinc-500 hover:text-white font-headline text-xs uppercase font-bold px-4 py-3 border border-zinc-800 flex-1 md:flex-none justify-center"
@@ -386,7 +445,10 @@ export default function AdminOps() {
                     <div 
                       key={member.id} 
                       onClick={() => { setSelectedMember(member); setView('details'); }}
-                      className="bg-zinc-900/50 border-l-2 border-primary p-4 flex items-center gap-4 hover:bg-zinc-800 transition-all cursor-pointer group"
+                      className={cn(
+                        "bg-zinc-900/50 border-l-2 p-4 flex items-center gap-4 hover:bg-zinc-800 transition-all cursor-pointer group",
+                        memberStatus(member) === 'inactive' ? "border-zinc-700 opacity-60" : "border-primary"
+                      )}
                     >
                       <div className="w-12 h-12 bg-zinc-800 flex-shrink-0 overflow-hidden relative">
                         <img 
@@ -412,6 +474,12 @@ export default function AdminOps() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h4 className="font-headline font-bold text-white uppercase text-sm truncate">{member.name}</h4>
+                          {memberStatus(member) === 'inactive' && (
+                            <span className="bg-zinc-800 text-zinc-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-zinc-600">INACTIVE</span>
+                          )}
+                          {memberStatus(member) === 'expired' && (
+                            <span className="bg-red-500/20 text-red-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-red-500/30">EXPIRED</span>
+                          )}
                           {member.fcmToken ? (
                             <span className="bg-primary/20 text-primary text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-primary/30">SYNCED</span>
                           ) : (
@@ -500,6 +568,10 @@ export default function AdminOps() {
                 <div className="flex flex-col gap-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Subscription End Date</label>
                   <input name="subscriptionEnd" value={formData.subscriptionEnd} onChange={handleInputChange} required className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" type="date" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Amount Paid Now ($)</label>
+                  <input name="initialPayment" type="number" min="0" step="0.01" value={formData.initialPayment} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
                 </div>
                 
                 <div className="flex flex-col gap-2">
@@ -598,13 +670,28 @@ export default function AdminOps() {
                       Save Intelligence
                     </button>
                   )}
-                  <button 
-                    onClick={() => setShowDeleteConfirm(selectedMember.id)}
-                    className="w-full border-2 border-red-500 text-red-500 py-3 font-headline font-black uppercase text-xs hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Terminate Record
-                  </button>
+                  {selectedMember.status === 'inactive' ? (
+                    <button 
+                      onClick={() => handleReactivateMember(selectedMember)}
+                      className="w-full border-2 border-primary text-primary py-3 font-headline font-black uppercase text-xs hover:bg-primary hover:text-black transition-all flex items-center justify-center gap-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      Reactivate Member
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => setShowDeleteConfirm(selectedMember.id)}
+                      className="w-full border-2 border-red-500 text-red-500 py-3 font-headline font-black uppercase text-xs hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
+                    >
+                      <UserX className="w-4 h-4" />
+                      Terminate Record
+                    </button>
+                  )}
+                  {selectedMember.status === 'inactive' && selectedMember.terminatedAt && (
+                    <p className="text-[10px] text-zinc-500 font-headline uppercase tracking-widest text-center">
+                      Inactive since {new Date(selectedMember.terminatedAt).toLocaleDateString()}
+                    </p>
+                  )}
                   {isEditing && (
                     <button 
                       onClick={() => setIsEditing(false)}
@@ -700,7 +787,7 @@ export default function AdminOps() {
                       </div>
                       {!isEditing && (
                         <button 
-                          onClick={() => setShowRenewModal(selectedMember)}
+                          onClick={() => openRenewModal(selectedMember)}
                           className="bg-primary text-black font-headline font-black px-4 py-2 uppercase text-[10px] hover:bg-white transition-all"
                         >
                           Renew Sub
@@ -837,24 +924,35 @@ export default function AdminOps() {
                 <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Select Duration</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button 
-                    onClick={() => setRenewMonths(1)}
+                    onClick={() => { setRenewMonths(1); setRenewAmount(40); }}
                     className={cn(
                       "py-4 font-headline font-black uppercase text-xs transition-all border-2",
                       renewMonths === 1 ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500"
                     )}
                   >
-                    1 Month ($40)
+                    1 Month
                   </button>
                   <button 
-                    onClick={() => setRenewMonths(3)}
+                    onClick={() => { setRenewMonths(3); setRenewAmount(120); }}
                     className={cn(
                       "py-4 font-headline font-black uppercase text-xs transition-all border-2",
                       renewMonths === 3 ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500"
                     )}
                   >
-                    3 Months ($120)
+                    3 Months
                   </button>
                 </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Amount Paid ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={renewAmount}
+                  onChange={(e) => setRenewAmount(Number(e.target.value))}
+                  className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3"
+                />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -882,7 +980,7 @@ export default function AdminOps() {
           <div className="bg-zinc-900 border-t-8 border-red-500 p-8 max-w-md w-full animate-in zoom-in-95 duration-200">
             <h3 className="font-headline font-black text-2xl text-white mb-4 uppercase tracking-tighter">Confirm Termination</h3>
             <p className="text-zinc-400 font-headline text-sm mb-8 uppercase tracking-widest leading-relaxed">
-              Are you sure you want to permanently remove this personnel from the tactical database? This action cannot be undone.
+              This member will be marked inactive. Their history and payments are kept, and you can reactivate them at any time.
             </p>
             <div className="grid grid-cols-2 gap-4">
               <button 
@@ -892,10 +990,10 @@ export default function AdminOps() {
                 Cancel
               </button>
               <button 
-                onClick={() => handleDeleteMember(showDeleteConfirm)}
+                onClick={() => handleTerminateMember(showDeleteConfirm)}
                 className="bg-red-500 text-white font-headline font-black py-4 uppercase text-xs hover:bg-red-600 transition-all"
               >
-                Confirm Delete
+                Confirm Terminate
               </button>
             </div>
           </div>
