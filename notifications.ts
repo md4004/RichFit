@@ -8,7 +8,6 @@ import config from './firebase-applet-config.json' with { type: 'json' };
 const TIMEZONE = 'Asia/Beirut';
 const SOON_DAYS = 3;          // "ends in X days" window
 const EXPIRED_GRACE_DAYS = 7; // only remind recently expired members
-const DEFAULT_MIN_STOCK = 3;  // low-stock threshold when a product has no minStock
 const PRUNE_AFTER_DAYS = 60;  // delete notifications older than this
 
 type Stage = 'soon' | 'today' | 'expired';
@@ -146,13 +145,13 @@ export async function runDailyNotifications(deps: { firestore?: any; messaging?:
     if (stage === 'soon' || stage === 'today' || newForAdmin) digest[stage].push(member.name);
   }
 
-  // 2. Low stock (admin only, once each time a product drops to its minimum)
+  // 2. Low stock (admin only, once each time a product drops to its alert level)
   const lowStock: string[] = [];
   const productsSnap = await firestore.collection('products').get();
   for (const p of productsSnap.docs) {
     const product = p.data() as any;
-    const min = typeof product.minStock === 'number' ? product.minStock : DEFAULT_MIN_STOCK;
-    const isLow = typeof product.stock === 'number' && product.stock <= min;
+    // Only products where the admin set an alert level in the app
+    const isLow = typeof product.minStock === 'number' && typeof product.stock === 'number' && product.stock <= product.minStock;
     for (const admin of admins) {
       const id = `low_stock_${p.id}_${admin.id}`;
       if (isLow) {

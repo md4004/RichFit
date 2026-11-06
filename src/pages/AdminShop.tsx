@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { PRODUCTS as STATIC_PRODUCTS } from '@/constants';
-import { TrendingUp, Plus, MoreVertical, Search, Trash2, Upload, X, Filter, History, DollarSign, Package, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { db, collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, setDoc, OperationType, handleFirestoreError, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, orderBy, limit } from '@/firebase';
+import { TrendingUp, Plus, MoreVertical, Search, Trash2, Upload, X, Filter, History, DollarSign, Package, ArrowUpRight, ArrowDownRight, Pencil, Bell } from 'lucide-react';
+import { db, collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, auth, OperationType, handleFirestoreError, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, orderBy, limit } from '@/firebase';
 import { Product, Transaction } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +16,48 @@ export default function AdminShop() {
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState<'inventory' | 'history'>('inventory');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [newMinStock, setNewMinStock] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editMinStock, setEditMinStock] = useState('');
+
+  const openEdit = (product: Product) => {
+    setEditingProduct(product);
+    setEditPrice(String(product.price));
+    setEditMinStock(typeof product.minStock === 'number' ? String(product.minStock) : '');
+  };
+
+  // Saves price and low-stock alert level (blank alert level = no alerts for this product)
+  const handleSaveProduct = async () => {
+    if (!editingProduct) return;
+    const price = Number(editPrice);
+    if (!(price >= 0)) { alert('Enter a valid price.'); return; }
+    const minStock = editMinStock.trim() === '' ? null : Number(editMinStock);
+    if (minStock !== null && !(minStock >= 0)) { alert('Enter a valid alert level.'); return; }
+    try {
+      await updateDoc(doc(db, 'products', editingProduct.id), { price, minStock });
+      setEditingProduct(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${editingProduct.id}`);
+    }
+  };
+
+  // Puts a low-stock alert in the admin's bell right away (the morning summary repeats it)
+  const raiseLowStockAlert = async (product: Product, stock: number) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || typeof product.minStock !== 'number' || stock > product.minStock) return;
+    const ref = doc(db, 'notifications', `low_stock_${product.id}_${uid}`);
+    if ((await getDoc(ref)).exists()) return;
+    await setDoc(ref, {
+      userId: uid,
+      title: 'Low stock',
+      message: `${product.name} is down to ${stock} unit${stock === 1 ? '' : 's'}. Time to restock.`,
+      type: 'warning',
+      read: false,
+      createdAt: new Date().toISOString(),
+      url: '/admin/shop'
+    });
+  };
   const [transactionDeleteConfirm, setTransactionDeleteConfirm] = useState<string | null>(null);
   const [transactionConfig, setTransactionConfig] = useState<{ product: Product, type: 'sale' | 'restock' } | null>(null);
   const [transactionQty, setTransactionQty] = useState(1);
@@ -113,6 +155,7 @@ export default function AdminShop() {
         ...formData,
         price: Number(formData.price),
         stock: Number(formData.stock),
+        ...(newMinStock.trim() !== '' ? { minStock: Number(newMinStock) } : {}),
         image: formData.image || `https://picsum.photos/seed/${formData.name}/800/600`,
         createdAt: new Date().toISOString()
       };
@@ -120,6 +163,7 @@ export default function AdminShop() {
       await addDoc(collection(db, 'products'), productData);
       setShowAddModal(false);
       setFormData({ name: '', price: 0, stock: 0, category: 'Supplements', sku: '', image: '' });
+      setNewMinStock('');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'products');
     }
@@ -147,6 +191,7 @@ export default function AdminShop() {
         quantity,
         date: new Date().toISOString()
       });
+      if (type === 'sale') await raiseLowStockAlert(product, newStock).catch(() => {});
       setTransactionConfig(null);
       setTransactionQty(1);
     } catch (error) {
@@ -329,9 +374,13 @@ export default function AdminShop() {
                     <p className="text-[10px] text-zinc-500 font-mono">SKU: {product.sku}</p>
                     <p className={cn(
                       "text-[10px] font-headline font-bold uppercase mt-1",
-                      product.stock <= 5 ? "text-red-500 animate-pulse" : "text-zinc-400"
+                      typeof product.minStock === 'number' && product.stock <= product.minStock ? "text-red-500 animate-pulse" : "text-zinc-400"
                     )}>
                       STOCKED: {product.stock} UNITS {product.stock === 0 && "(OUT OF STOCK)"}
+                    </p>
+                    <p className="text-[10px] text-zinc-600 font-headline uppercase mt-1 flex items-center gap-1">
+                      <Bell className="w-3 h-3" />
+                      {typeof product.minStock === 'number' ? `Alert at ${product.minStock} or less` : 'No stock alert'}
                     </p>
                   </div>
                   <p className="text-primary font-black font-headline text-lg">${product.price.toFixed(2)}</p>
@@ -363,6 +412,13 @@ export default function AdminShop() {
                   </button>
                 </div>
 
+                <button 
+                  onClick={() => openEdit(product)}
+                  className="absolute top-2 right-10 p-2 text-zinc-600 hover:text-primary transition-colors"
+                  title="Edit price and stock alert"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
                 <button 
                   onClick={() => setShowDeleteConfirm(product.id)}
                   className="absolute top-2 right-2 p-2 text-zinc-600 hover:text-red-500 transition-colors"
@@ -547,6 +603,17 @@ export default function AdminShop() {
                     placeholder="E.G. 100"
                   />
                 </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Alert Me When Stock Reaches</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    value={newMinStock}
+                    onChange={(e) => setNewMinStock(e.target.value)}
+                    className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3 placeholder:text-zinc-700" 
+                    placeholder="NO ALERT"
+                  />
+                </div>
                 <div className="flex flex-col gap-2 md:col-span-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Category</label>
                   <select 
@@ -621,6 +688,33 @@ export default function AdminShop() {
                 >
                   Confirm
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {editingProduct && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="bg-zinc-900 border-t-8 border-primary p-8 max-w-md w-full">
+            <h3 className="font-headline font-black text-2xl text-white mb-1 uppercase tracking-tighter">Edit Product</h3>
+            <p className="text-zinc-500 font-headline text-[10px] uppercase tracking-widest mb-6">{editingProduct.name} · {editingProduct.sku}</p>
+            <div className="space-y-6">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Price ($)</label>
+                <input type="number" min="0" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)}
+                  className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Alert me when stock reaches</label>
+                <input type="number" min="0" step="1" value={editMinStock} onChange={(e) => setEditMinStock(e.target.value)} placeholder="No alert"
+                  className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3 placeholder:text-zinc-700" />
+                <p className="text-[10px] text-zinc-600 font-headline uppercase">Leave empty for no low-stock alert</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => setEditingProduct(null)} className="bg-zinc-800 text-white font-headline font-black py-4 uppercase text-xs hover:bg-zinc-700 transition-all">Cancel</button>
+                <button onClick={handleSaveProduct} className="bg-primary text-black font-headline font-black py-4 uppercase text-xs hover:bg-white transition-all">Save</button>
               </div>
             </div>
           </div>
