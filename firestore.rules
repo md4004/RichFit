@@ -215,6 +215,23 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Cash register (caisse). Admin only; entries are never deleted, only voided.
+    match /cash_movements/{movementId} {
+      function isValidCashMovement(data) {
+        return data.keys().hasAll(['direction', 'amount', 'currency', 'category', 'date', 'createdBy']) &&
+               data.direction in ['in', 'out'] &&
+               data.amount is number && data.amount > 0 &&
+               data.currency in ['USD', 'LBP'] &&
+               data.category is string && data.category.size() > 0 &&
+               data.date is string;
+      }
+
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidCashMovement(request.resource.data);
+      allow update: if isAdmin() && isValidCashMovement(request.resource.data);
+      allow delete: if false;
+    }
+
     match /notifications/{notificationId} {
       function isValidNotification(data) {
         return data.keys().hasAll(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&

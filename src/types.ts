@@ -24,6 +24,9 @@ export interface Member {
   phone?: string;
   address?: string;
   subscriptionEnd?: string;
+  subscriptionPrice?: number;  // total due for the current subscription period ($)
+  subscriptionPaid?: number;   // paid so far for the current period ($)
+  lastPaymentAt?: string;
   status?: 'active' | 'inactive';
   terminatedAt?: string;
   reactivatedAt?: string;
@@ -103,4 +106,27 @@ export interface Transaction {
   amount: number;
   type: 'sale' | 'restock';
   quantity: number;
+  category?: string;
+  memberId?: string;        // who bought it / whose membership it is
+  memberName?: string;
+  paid?: boolean;           // false = sold on credit, not paid yet (missing = paid)
+  paidAt?: string;          // when the payment was received
+  paymentMethod?: 'cash' | 'card';
+}
+
+export interface CashMovement {
+  id: string;
+  direction: 'in' | 'out';
+  amount: number;
+  currency: 'USD' | 'LBP';
+  category: string;
+  note?: string;
+  memberId?: string;
+  memberName?: string;
+  transactionId?: string;
+  date: string;
+  createdBy: string;
+  voided?: boolean;
+  voidedAt?: string;
+  voidReason?: string;
 }

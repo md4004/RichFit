@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import AdminOps from './pages/AdminOps';
 import AdminPT from './pages/AdminPT';
 import AdminShop from './pages/AdminShop';
+import AdminCaisse from './pages/AdminCaisse';
 import AdminNews from './pages/AdminNews';
 import AdminCoaches from './pages/AdminCoaches';
 import CoachDashboard from './pages/CoachDashboard';
@@ -78,6 +79,7 @@ export default function App() {
         <Route path="/admin/coaches" element={<ProtectedRoute adminOnly><AdminCoaches /></ProtectedRoute>} />
         <Route path="/admin/pt" element={<ProtectedRoute adminOnly><AdminPT /></ProtectedRoute>} />
         <Route path="/admin/shop" element={<ProtectedRoute adminOnly><AdminShop /></ProtectedRoute>} />
+        <Route path="/admin/caisse" element={<ProtectedRoute adminOnly><AdminCaisse /></ProtectedRoute>} />
         <Route path="/admin/news" element={<ProtectedRoute adminOnly><AdminNews /></ProtectedRoute>} />
 
         {/* Coach Routes */}

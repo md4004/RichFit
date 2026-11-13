@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle, RotateCcw, UserX } from 'lucide-react';
+import { Database, Upload, ChevronRight, Trash2, Plus, ArrowLeft, Calendar, Mail, Shield, Activity, User as UserIcon, Search, Filter, X, Save, CheckCircle2, XCircle, RotateCcw, UserX, DollarSign, Receipt } from 'lucide-react';
 import { db, collection, onSnapshot, query, where, getDocs, doc, deleteDoc, OperationType, handleFirestoreError, auth, secondaryAuth, setDoc, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, addDoc, updateDoc } from '@/firebase';
-import { Member } from '@/types';
+import { Member, Transaction } from '@/types';
+import { memberPaymentStatus, memberBalanceDue, recordSubscriptionPayment, isSalePaid, salePaidAt, round2, formatMoney, PaymentMethod } from '@/lib/payments';
+import { orderBy } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { useSearchParams } from 'react-router-dom';
 
@@ -20,7 +22,14 @@ export default function AdminOps() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showRenewModal, setShowRenewModal] = useState<Member | null>(null);
   const [renewMonths, setRenewMonths] = useState<1 | 3>(1);
+  const [renewPrice, setRenewPrice] = useState(40);
   const [renewAmount, setRenewAmount] = useState(40);
+  const [renewMethod, setRenewMethod] = useState<PaymentMethod>('cash');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'partial' | 'unpaid'>('all');
+  const [showPaymentModal, setShowPaymentModal] = useState<Member | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [memberHistory, setMemberHistory] = useState<Transaction[]>([]);
   const [searchParams] = useSearchParams();
   const initialFilter = searchParams.get('filter');
   const [statusFilter, setStatusFilter] = useState<'current' | 'active' | 'expired' | 'inactive' | 'all'>(
@@ -43,7 +52,9 @@ export default function AdminOps() {
     phone: '',
     address: '',
     subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    initialPayment: 40
+    initialPayment: 40,
+    subscriptionPrice: 40,
+    paymentMethod: 'cash'
   });
 
   useEffect(() => {
@@ -149,6 +160,9 @@ export default function AdminOps() {
         phone: formData.phone,
         address: formData.address,
         subscriptionEnd: formData.subscriptionEnd,
+        subscriptionPrice: round2(Number(formData.subscriptionPrice) || 0),
+        subscriptionPaid: round2(Number(formData.initialPayment) || 0),
+        ...(Number(formData.initialPayment) > 0 ? { lastPaymentAt: new Date().toISOString() } : {}),
         status: 'active',
         role: 'user',
         createdAt: new Date().toISOString(),
@@ -158,20 +172,14 @@ export default function AdminOps() {
       console.log("Saving member profile:", memberProfile);
       await setDoc(doc(db, 'users', uid), memberProfile);
 
-      // Record initial subscription income (amount entered by the admin)
-      const initialPayment = Number(formData.initialPayment);
-      if (initialPayment > 0) {
-        await addDoc(collection(db, 'transactions'), {
-          productId: 'subscription',
-          productName: `Initial Subscription - ${formData.name}`,
-          memberId: uid,
-          amount: initialPayment,
-          type: 'sale',
-          quantity: 1,
-          date: new Date().toISOString(),
-          category: 'Subscription'
-        });
-      }
+      // Record the initial payment (income + caisse entry when paid in cash)
+      await recordSubscriptionPayment({
+        member: { id: uid, name: formData.name },
+        amount: Number(formData.initialPayment),
+        method: formData.paymentMethod as PaymentMethod,
+        label: 'Initial Subscription',
+        productId: 'subscription',
+      });
 
       setFormData({
         name: '',
@@ -187,7 +195,9 @@ export default function AdminOps() {
         phone: '',
         address: '',
         subscriptionEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        initialPayment: 40
+        initialPayment: 40,
+        subscriptionPrice: 40,
+        paymentMethod: 'cash'
       });
       setView('list');
       alert('Personnel Induction Successful.');
@@ -240,9 +250,47 @@ export default function AdminOps() {
 
   const openRenewModal = (member: Member) => {
     setRenewMonths(1);
+    setRenewPrice(40);
     setRenewAmount(40);
+    setRenewMethod('cash');
     setShowRenewModal(member);
   };
+
+  const openPaymentModal = (member: Member) => {
+    setPaymentAmount(memberBalanceDue(member));
+    setPaymentMethod('cash');
+    setShowPaymentModal(member);
+  };
+
+  // A later instalment towards the current subscription period
+  const handleRecordPayment = async () => {
+    const member = showPaymentModal;
+    if (!member) return;
+    const amount = round2(Number(paymentAmount));
+    if (!(amount > 0)) { alert('Enter an amount.'); return; }
+    try {
+      const subscriptionPaid = round2((member.subscriptionPaid ?? 0) + amount);
+      const lastPaymentAt = new Date().toISOString();
+      await updateDoc(doc(db, 'users', member.id), { subscriptionPaid, lastPaymentAt });
+      await recordSubscriptionPayment({
+        member, amount, method: paymentMethod, label: 'Membership Payment', productId: 'subscription_payment',
+      });
+      if (selectedMember?.id === member.id) setSelectedMember({ ...selectedMember, subscriptionPaid, lastPaymentAt });
+      setShowPaymentModal(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${member.id}`);
+    }
+  };
+
+  // Payment and purchase history of the open member
+  useEffect(() => {
+    if (!selectedMember) { setMemberHistory([]); return; }
+    const q = query(collection(db, 'transactions'), where('memberId', '==', selectedMember.id));
+    return onSnapshot(q, snap => {
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Transaction[];
+      setMemberHistory(rows.sort((a, b) => b.date.localeCompare(a.date)));
+    }, () => setMemberHistory([]));
+  }, [selectedMember?.id]);
 
   const handleRenewSubscription = async () => {
     if (!showRenewModal) return;
@@ -257,23 +305,27 @@ export default function AdminOps() {
       
       const subscriptionEnd = newEnd.toISOString().split('T')[0];
       
-      await updateDoc(doc(db, 'users', showRenewModal.id), { subscriptionEnd, status: 'active' });
+      // New period: price = this renewal + anything still unpaid from the previous period
+      const carriedOver = memberBalanceDue(showRenewModal);
+      const subscriptionPrice = round2(Number(renewPrice) + carriedOver);
+      const subscriptionPaid = round2(Number(renewAmount) || 0);
+      const paymentFields = subscriptionPaid > 0 ? { lastPaymentAt: new Date().toISOString() } : {};
+      await updateDoc(doc(db, 'users', showRenewModal.id), {
+        subscriptionEnd, status: 'active', subscriptionPrice, subscriptionPaid, ...paymentFields
+      });
       await clearSubscriptionAlerts(showRenewModal);
       
-      // Record renewal income
-      await addDoc(collection(db, 'transactions'), {
+      await recordSubscriptionPayment({
+        member: showRenewModal,
+        amount: subscriptionPaid,
+        method: renewMethod,
+        label: `Subscription Renewal (${renewMonths} Month${renewMonths > 1 ? 's' : ''})`,
         productId: 'subscription_renewal',
-        productName: `Subscription Renewal (${renewMonths} Month${renewMonths > 1 ? 's' : ''}) - ${showRenewModal.name}`,
-        memberId: showRenewModal.id,
-        amount: Number(renewAmount),
-        type: 'sale',
-        quantity: renewMonths,
-        date: new Date().toISOString(),
-        category: 'Subscription'
+        months: renewMonths,
       });
       
       if (selectedMember?.id === showRenewModal.id) {
-        setSelectedMember({ ...selectedMember, subscriptionEnd, status: 'active' });
+        setSelectedMember({ ...selectedMember, subscriptionEnd, status: 'active', subscriptionPrice, subscriptionPaid, ...paymentFields });
       }
       setShowRenewModal(null);
       alert('Subscription Renewed Successfully.');
@@ -335,6 +387,7 @@ export default function AdminOps() {
 
   const filteredMembers = members
     .filter(m => statusFilter === 'all' || (statusFilter === 'current' ? memberStatus(m) !== 'inactive' : memberStatus(m) === statusFilter))
+    .filter(m => paymentFilter === 'all' || memberPaymentStatus(m) === paymentFilter)
     .filter(m => 
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       m.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -446,6 +499,16 @@ export default function AdminOps() {
                   <option value="inactive">Inactive / Former ({stats.inactive})</option>
                   <option value="all">All ({members.length})</option>
                 </select>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
+                  className="bg-black border border-zinc-800 text-zinc-300 font-headline text-xs uppercase font-bold px-4 py-3 flex-1 md:flex-none"
+                >
+                  <option value="all">Any Payment</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partially Paid</option>
+                  <option value="unpaid">Unpaid</option>
+                </select>
                 <button 
                   onClick={() => setSortBy(sortBy === 'name' ? 'subEnd' : 'name')}
                   className="flex items-center gap-2 text-zinc-500 hover:text-white font-headline text-xs uppercase font-bold px-4 py-3 border border-zinc-800 flex-1 md:flex-none justify-center"
@@ -506,6 +569,15 @@ export default function AdminOps() {
                           <h4 className="font-headline font-bold text-white uppercase text-sm truncate">{member.name}</h4>
                           {memberStatus(member) === 'inactive' && (
                             <span className="bg-zinc-800 text-zinc-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-zinc-600">INACTIVE</span>
+                          )}
+                          {memberPaymentStatus(member) === 'paid' && (
+                            <span className="bg-green-500/15 text-green-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-green-500/30">PAID</span>
+                          )}
+                          {memberPaymentStatus(member) === 'partial' && (
+                            <span className="bg-amber-500/15 text-amber-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-amber-500/30">PARTIAL · {formatMoney(memberBalanceDue(member))} DUE</span>
+                          )}
+                          {memberPaymentStatus(member) === 'unpaid' && (
+                            <span className="bg-red-500/15 text-red-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-red-500/30">UNPAID · {formatMoney(memberBalanceDue(member))}</span>
                           )}
                           {memberStatus(member) === 'expired' && (
                             <span className="bg-red-500/20 text-red-400 text-[8px] px-1.5 py-0.5 font-headline font-black rounded border border-red-500/30">EXPIRED</span>
@@ -600,8 +672,19 @@ export default function AdminOps() {
                   <input name="subscriptionEnd" value={formData.subscriptionEnd} onChange={handleInputChange} required className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" type="date" />
                 </div>
                 <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Membership Price ($)</label>
+                  <input name="subscriptionPrice" type="number" min="0" step="0.01" value={formData.subscriptionPrice} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
+                <div className="flex flex-col gap-2">
                   <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Amount Paid Now ($)</label>
                   <input name="initialPayment" type="number" min="0" step="0.01" value={formData.initialPayment} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Payment Method</label>
+                  <select name="paymentMethod" value={formData.paymentMethod} onChange={handleInputChange} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3">
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                  </select>
                 </div>
                 
                 <div className="flex flex-col gap-2">
@@ -824,6 +907,73 @@ export default function AdminOps() {
                         </button>
                       )}
                     </div>
+                    {/* Payment status for the current subscription period */}
+                    <div className={cn(
+                      "bg-black p-4 border-l-4",
+                      memberPaymentStatus(selectedMember) === 'paid' ? "border-green-500" :
+                      memberPaymentStatus(selectedMember) === 'none' ? "border-zinc-700" :
+                      memberPaymentStatus(selectedMember) === 'partial' ? "border-amber-500" : "border-red-500"
+                    )}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-1">Payment Status</p>
+                          {memberPaymentStatus(selectedMember) === 'none' ? (
+                            <p className="font-headline font-bold text-zinc-500 text-sm uppercase">No price recorded</p>
+                          ) : (
+                            <>
+                              <p className={cn("font-headline font-black uppercase",
+                                memberPaymentStatus(selectedMember) === 'paid' ? "text-green-400" :
+                                memberPaymentStatus(selectedMember) === 'partial' ? "text-amber-400" : "text-red-400")}>
+                                {memberPaymentStatus(selectedMember) === 'paid' ? 'Paid' : memberPaymentStatus(selectedMember) === 'partial' ? 'Partially Paid' : 'Unpaid'}
+                              </p>
+                              <p className="font-headline text-zinc-400 text-xs mt-1">
+                                Paid {formatMoney(selectedMember.subscriptionPaid ?? 0)} of {formatMoney(selectedMember.subscriptionPrice ?? 0)}
+                                {memberBalanceDue(selectedMember) > 0 && <> · <span className="text-white font-bold">{formatMoney(memberBalanceDue(selectedMember))} due</span></>}
+                              </p>
+                              {selectedMember.lastPaymentAt && (
+                                <p className="font-headline text-zinc-600 text-[10px] mt-1">Last payment: {new Date(selectedMember.lastPaymentAt).toLocaleDateString()}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {!isEditing && memberBalanceDue(selectedMember) > 0 && (
+                          <button
+                            onClick={() => openPaymentModal(selectedMember)}
+                            className="bg-white text-black font-headline font-black px-4 py-2 uppercase text-[10px] hover:bg-primary transition-all flex items-center gap-1 whitespace-nowrap"
+                          >
+                            <DollarSign className="w-3 h-3" /> Record Payment
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Payment and purchase history */}
+                    <div className="bg-black p-4 border-l-4 border-zinc-700">
+                      <p className="text-[10px] text-zinc-500 font-headline font-black uppercase tracking-widest mb-3 flex items-center gap-1"><Receipt className="w-3 h-3" /> Payments & Purchases</p>
+                      {memberHistory.length === 0 ? (
+                        <p className="font-headline text-zinc-600 text-xs uppercase">Nothing recorded yet</p>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {memberHistory.map(t => (
+                            <div key={t.id} className="flex justify-between gap-3 text-xs border-b border-zinc-900 pb-2">
+                              <div className="min-w-0">
+                                <p className="font-headline font-bold text-white uppercase truncate">
+                                  {t.category === 'Subscription' ? t.productName.replace(` - ${selectedMember.name}`, '') : `${t.productName} ×${t.quantity}`}
+                                </p>
+                                <p className="font-headline text-zinc-600 text-[10px]">
+                                  {new Date(t.date).toLocaleDateString()}
+                                  {isSalePaid(t)
+                                    ? <> · Paid {new Date(salePaidAt(t)!).toLocaleDateString()}{t.paymentMethod ? ` (${t.paymentMethod})` : ''}</>
+                                    : <span className="text-red-400"> · Not paid yet</span>}
+                                </p>
+                              </div>
+                              <span className={cn("font-mono font-bold whitespace-nowrap", isSalePaid(t) ? "text-primary" : "text-red-400")}>{formatMoney(t.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div className={cn(
                       "bg-black p-4 border-l-4",
                       selectedMember.fcmToken ? "border-primary" : "border-zinc-700"
@@ -954,7 +1104,7 @@ export default function AdminOps() {
                 <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Select Duration</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button 
-                    onClick={() => { setRenewMonths(1); setRenewAmount(40); }}
+                    onClick={() => { setRenewMonths(1); setRenewPrice(40); setRenewAmount(40); }}
                     className={cn(
                       "py-4 font-headline font-black uppercase text-xs transition-all border-2",
                       renewMonths === 1 ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500"
@@ -963,7 +1113,7 @@ export default function AdminOps() {
                     1 Month
                   </button>
                   <button 
-                    onClick={() => { setRenewMonths(3); setRenewAmount(120); }}
+                    onClick={() => { setRenewMonths(3); setRenewPrice(120); setRenewAmount(120); }}
                     className={cn(
                       "py-4 font-headline font-black uppercase text-xs transition-all border-2",
                       renewMonths === 3 ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500"
@@ -973,17 +1123,38 @@ export default function AdminOps() {
                   </button>
                 </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Amount Paid ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={renewAmount}
-                  onChange={(e) => setRenewAmount(Number(e.target.value))}
-                  className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Price ($)</label>
+                  <input type="number" min="0" step="0.01" value={renewPrice} onChange={(e) => setRenewPrice(Number(e.target.value))} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Paid Now ($)</label>
+                  <input type="number" min="0" step="0.01" value={renewAmount} onChange={(e) => setRenewAmount(Number(e.target.value))} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                </div>
               </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Payment Method</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['cash', 'card'] as const).map(m => (
+                    <button key={m} onClick={() => setRenewMethod(m)}
+                      className={cn("py-3 font-headline font-black uppercase text-xs border-2 transition-all",
+                        renewMethod === m ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500")}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {memberBalanceDue(showRenewModal) > 0 && (
+                <p className="text-[10px] text-amber-400 font-headline uppercase">
+                  {formatMoney(memberBalanceDue(showRenewModal))} still unpaid from the previous period will be added to this one.
+                </p>
+              )}
+              {Number(renewAmount) < Number(renewPrice) + memberBalanceDue(showRenewModal) && (
+                <p className="text-[10px] text-zinc-500 font-headline uppercase">
+                  Remaining after this payment: {formatMoney(round2(Number(renewPrice) + memberBalanceDue(showRenewModal) - Number(renewAmount)))}
+                </p>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <button 
@@ -998,6 +1169,40 @@ export default function AdminOps() {
                 >
                   Confirm Renewal
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="bg-zinc-900 border-t-8 border-primary p-8 max-w-md w-full animate-in zoom-in-95 duration-200">
+            <h3 className="font-headline font-black text-2xl text-white mb-2 uppercase tracking-tighter">Record Payment</h3>
+            <p className="text-zinc-500 font-headline text-[10px] uppercase tracking-widest mb-6">
+              {showPaymentModal.name} · {formatMoney(memberBalanceDue(showPaymentModal))} due
+            </p>
+            <div className="space-y-6">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Amount ($)</label>
+                <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(Number(e.target.value))} className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Payment Method</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['cash', 'card'] as const).map(m => (
+                    <button key={m} onClick={() => setPaymentMethod(m)}
+                      className={cn("py-3 font-headline font-black uppercase text-xs border-2 transition-all",
+                        paymentMethod === m ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500")}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => setShowPaymentModal(null)} className="bg-zinc-800 text-white font-headline font-black py-4 uppercase text-xs hover:bg-zinc-700 transition-all">Cancel</button>
+                <button onClick={handleRecordPayment} className="bg-primary text-black font-headline font-black py-4 uppercase text-xs hover:bg-white transition-all">Save Payment</button>
               </div>
             </div>
           </div>
