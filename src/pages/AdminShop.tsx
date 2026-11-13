@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { PRODUCTS as STATIC_PRODUCTS } from '@/constants';
-import { TrendingUp, Plus, MoreVertical, Search, Trash2, Upload, X, Filter, History, DollarSign, Package, ArrowUpRight, ArrowDownRight, Pencil, Bell } from 'lucide-react';
-import { db, collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, auth, OperationType, handleFirestoreError, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, orderBy, limit } from '@/firebase';
-import { Product, Transaction } from '@/types';
+import { TrendingUp, Plus, MoreVertical, Search, Trash2, Upload, X, Filter, History, DollarSign, Package, ArrowUpRight, ArrowDownRight, Pencil, Bell, CheckCircle2 } from 'lucide-react';
+import { db, collection, onSnapshot, query, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, getDocs, auth, where, OperationType, handleFirestoreError, storage, ref, uploadBytes, getDownloadURL, uploadBytesResumable, orderBy, limit } from '@/firebase';
+import { Product, Transaction, Member } from '@/types';
+import { addCashMovement, isSalePaid, salePaidAt, formatMoney, round2, PaymentMethod } from '@/lib/payments';
 import { cn } from '@/lib/utils';
 
 export default function AdminShop() {
@@ -61,6 +62,48 @@ export default function AdminShop() {
   const [transactionDeleteConfirm, setTransactionDeleteConfirm] = useState<string | null>(null);
   const [transactionConfig, setTransactionConfig] = useState<{ product: Product, type: 'sale' | 'restock' } | null>(null);
   const [transactionQty, setTransactionQty] = useState(1);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [saleMemberId, setSaleMemberId] = useState('');
+  const [saleMemberSearch, setSaleMemberSearch] = useState('');
+  const [salePayment, setSalePayment] = useState<PaymentMethod | 'later'>('cash');
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'unpaid'>('all');
+  const [markPaid, setMarkPaid] = useState<Transaction | null>(null);
+  const [markPaidMethod, setMarkPaidMethod] = useState<PaymentMethod>('cash');
+
+  // Members, for "sold to"
+  useEffect(() => {
+    return onSnapshot(query(collection(db, 'users'), where('role', '==', 'user')), snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Member[];
+      setMembers(list.filter(m => m.status !== 'inactive').sort((a, b) => a.name.localeCompare(b.name)));
+    }, () => setMembers([]));
+  }, []);
+
+  const openTransaction = (product: Product, type: 'sale' | 'restock') => {
+    setTransactionConfig({ product, type });
+    setTransactionQty(1);
+    setSaleMemberId('');
+    setSaleMemberSearch('');
+    setSalePayment('cash');
+  };
+
+  // Receives payment for an item that was sold on credit
+  const handleMarkPaid = async () => {
+    if (!markPaid) return;
+    try {
+      const paidAt = new Date().toISOString();
+      await updateDoc(doc(db, 'transactions', markPaid.id), { paid: true, paidAt, paymentMethod: markPaidMethod });
+      if (markPaidMethod === 'cash') {
+        await addCashMovement({
+          direction: 'in', amount: markPaid.amount, currency: 'USD', category: 'Item sale',
+          note: `${markPaid.productName} ×${markPaid.quantity} (paid later)`,
+          memberId: markPaid.memberId, memberName: markPaid.memberName, transactionId: markPaid.id,
+        });
+      }
+      setMarkPaid(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `transactions/${markPaid.id}`);
+    }
+  };
 
   const [formData, setFormData] = useState({
     name: '',
@@ -87,7 +130,7 @@ export default function AdminShop() {
     });
 
     const transactionsPath = 'transactions';
-    const transactionsQuery = query(collection(db, transactionsPath), orderBy('date', 'desc'), limit(50));
+    const transactionsQuery = query(collection(db, transactionsPath), orderBy('date', 'desc'), limit(500));
     
     const unsubscribeTransactions = onSnapshot(transactionsQuery, (snapshot) => {
       const transactionData = snapshot.docs.map(doc => ({
@@ -183,14 +226,31 @@ export default function AdminShop() {
 
       await updateDoc(doc(db, 'products', product.id), { stock: newStock });
       
-      await addDoc(collection(db, 'transactions'), {
+      const date = new Date().toISOString();
+      const amount = type === 'sale' ? round2(product.price * quantity) : 0;
+      const buyer = members.find(m => m.id === saleMemberId);
+      const saleFields = type === 'sale' ? {
+        ...(buyer ? { memberId: buyer.id, memberName: buyer.name } : { memberName: 'Walk-in' }),
+        ...(salePayment === 'later'
+          ? { paid: false }
+          : { paid: true, paidAt: date, paymentMethod: salePayment }),
+      } : {};
+      const ref = await addDoc(collection(db, 'transactions'), {
         productId: product.id,
         productName: product.name,
-        amount: type === 'sale' ? product.price * quantity : 0,
+        amount,
         type,
         quantity,
-        date: new Date().toISOString()
+        date,
+        ...saleFields
       });
+      if (type === 'sale' && salePayment === 'cash' && amount > 0) {
+        await addCashMovement({
+          direction: 'in', amount, currency: 'USD', category: 'Item sale',
+          note: `${product.name} ×${quantity}`,
+          memberId: buyer?.id, memberName: buyer?.name ?? 'Walk-in', transactionId: ref.id,
+        });
+      }
       if (type === 'sale') await raiseLowStockAlert(product, newStock).catch(() => {});
       setTransactionConfig(null);
       setTransactionQty(1);
@@ -209,9 +269,12 @@ export default function AdminShop() {
   };
 
   const handleDeleteTransaction = async (transactionId: string) => {
-    if (!window.confirm('Delete this transaction record?')) return;
+    if (!window.confirm('Delete this transaction record? Any cash it put in the caisse will be voided.')) return;
     try {
       await deleteDoc(doc(db, 'transactions', transactionId));
+      // Keep the caisse correct: void the cash entry that came from this sale
+      const linked = await getDocs(query(collection(db, 'cash_movements'), where('transactionId', '==', transactionId)));
+      await Promise.all(linked.docs.map(d => updateDoc(d.ref, { voided: true, voidedAt: new Date().toISOString(), voidReason: 'Sale deleted' })));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `transactions/${transactionId}`);
     }
@@ -255,6 +318,10 @@ export default function AdminShop() {
     .reduce((sum, t) => sum + t.amount, 0);
 
   const categories = ['All', 'Supplements', 'Equipment', 'Apparel', 'Accessories'];
+
+  const visibleTransactions = historyFilter === 'unpaid'
+    ? transactions.filter(t => t.type === 'sale' && !isSalePaid(t))
+    : transactions;
 
   return (
     <Layout isAdmin>
@@ -301,6 +368,13 @@ export default function AdminShop() {
             </div>
           </div>
         </div>
+        <button onClick={() => { setView('history'); setHistoryFilter('unpaid'); }} className="text-left bg-zinc-900 p-6 border-t-4 border-red-500">
+          <span className="text-zinc-500 font-headline uppercase font-bold tracking-widest text-[10px]">Unpaid Items</span>
+          <div className="text-red-400 text-3xl font-black font-headline mt-2">
+            {formatMoney(transactions.filter(t => t.type === 'sale' && !isSalePaid(t)).reduce((s, t) => s + t.amount, 0))}
+          </div>
+          <span className="text-[10px] text-zinc-600 font-headline uppercase">{transactions.filter(t => t.type === 'sale' && !isSalePaid(t)).length} sale(s) not paid</span>
+        </button>
         <div className="bg-zinc-900 p-6 border-t-4 border-zinc-800">
           <span className="text-zinc-500 font-headline uppercase font-bold tracking-widest text-[10px]">Items Sold</span>
           <div className="text-white text-3xl font-black font-headline mt-2">
@@ -388,10 +462,7 @@ export default function AdminShop() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <button 
-                    onClick={() => {
-                      setTransactionConfig({ product, type: 'sale' });
-                      setTransactionQty(1);
-                    }}
+                    onClick={() => openTransaction(product, 'sale')}
                     disabled={product.stock <= 0}
                     className="bg-primary text-black font-headline font-black text-[10px] uppercase py-3 hover:bg-white transition-all flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                     title={product.stock <= 0 ? "No remaining items to sell" : "Record item sale"}
@@ -400,10 +471,7 @@ export default function AdminShop() {
                     Record Sale
                   </button>
                   <button 
-                    onClick={() => {
-                      setTransactionConfig({ product, type: 'restock' });
-                      setTransactionQty(1);
-                    }}
+                    onClick={() => openTransaction(product, 'restock')}
                     className="bg-zinc-800 text-white font-headline font-black text-[10px] uppercase py-3 hover:bg-primary hover:text-black transition-all flex items-center justify-center gap-1"
                     title="Add units to stock"
                   >
@@ -431,44 +499,46 @@ export default function AdminShop() {
         </div>
       ) : (
         <div className="bg-zinc-900 border-t-4 border-primary animate-in fade-in duration-500">
-          <div className="p-6 border-b border-zinc-800">
+          <div className="p-6 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h2 className="font-headline text-2xl font-black uppercase text-white">Transaction History</h2>
+            <div className="flex gap-2">
+              {([['all', 'All'], ['unpaid', 'Unpaid Only']] as const).map(([v, label]) => (
+                <button key={v} onClick={() => setHistoryFilter(v)}
+                  className={cn("px-4 py-2 font-headline font-black text-[10px] uppercase tracking-widest border-2",
+                    historyFilter === v ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500")}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          
+
           {/* Mobile Layout (cards) */}
           <div className="block md:hidden divide-y divide-zinc-800">
-            {transactions.map((t) => (
-              <div key={t.id} className="p-4 space-y-2 hover:bg-zinc-800/20 transition-colors relative group">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="font-bold text-white uppercase text-xs leading-tight">{t.productName}</h4>
-                    <p className="text-[9px] text-zinc-500 font-mono mt-1">
-                      {new Date(t.date).toLocaleString()}
-                    </p>
+            {visibleTransactions.map((t) => (
+              <div key={t.id} className="p-4 space-y-2">
+                <div className="flex justify-between items-start gap-3">
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-white uppercase text-xs leading-tight">{t.productName} {t.type === 'sale' && t.category !== 'Subscription' && `×${t.quantity}`}</h4>
+                    <p className="text-[9px] text-zinc-500 font-mono mt-1">{new Date(t.date).toLocaleString()}</p>
+                    {t.type === 'sale' && <p className="text-[10px] text-zinc-400 font-headline uppercase mt-1">To: {t.memberName || '—'}</p>}
                   </div>
-                  <button 
-                    onClick={() => handleDeleteTransaction(t.id)}
-                    className="p-1 text-zinc-500 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <span className={cn("font-mono font-bold text-xs whitespace-nowrap", t.type === 'sale' && !isSalePaid(t) ? "text-red-400" : "text-primary")}>
+                    {t.amount > 0 ? formatMoney(t.amount) : '—'}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center pt-1">
-                  <span className={cn(
-                    "text-[10px] font-black uppercase flex items-center gap-1",
-                    t.type === 'sale' ? "text-green-500" : "text-blue-500"
-                  )}>
-                    {t.type === 'sale' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                    {t.type} (x{t.quantity})
-                  </span>
-                  <span className="font-mono text-primary font-bold text-xs">
-                    {t.amount > 0 ? `$${t.amount.toFixed(2)}` : '—'}
-                  </span>
+                <div className="flex justify-between items-center gap-2">
+                  <PaymentCell t={t} />
+                  <div className="flex items-center gap-2">
+                    {t.type === 'sale' && !isSalePaid(t) && (
+                      <button onClick={() => { setMarkPaid(t); setMarkPaidMethod('cash'); }} className="bg-white text-black font-headline font-black text-[10px] uppercase px-3 py-1">Mark Paid</button>
+                    )}
+                    <button onClick={() => handleDeleteTransaction(t.id)} className="p-1 text-zinc-500 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
               </div>
             ))}
-            {transactions.length === 0 && (
-              <p className="p-8 text-center text-zinc-600 font-headline uppercase text-xs">No active transactions</p>
+            {visibleTransactions.length === 0 && (
+              <p className="p-8 text-center text-zinc-600 font-headline uppercase text-xs">No transactions</p>
             )}
           </div>
 
@@ -477,48 +547,69 @@ export default function AdminShop() {
             <table className="w-full text-left font-headline">
               <thead>
                 <tr className="bg-black text-[10px] text-zinc-500 uppercase tracking-[0.2em]">
-                  <th className="px-8 py-4">Timestamp</th>
-                  <th className="px-8 py-4">Item</th>
-                  <th className="px-8 py-4">Type</th>
-                  <th className="px-8 py-4 text-right">Qty</th>
-                  <th className="px-8 py-4 text-right">Revenue</th>
-                  <th className="px-8 py-4 text-right">Manage</th>
+                  <th className="px-6 py-4">Sold On</th>
+                  <th className="px-6 py-4">Item</th>
+                  <th className="px-6 py-4">Sold To</th>
+                  <th className="px-6 py-4 text-right">Qty</th>
+                  <th className="px-6 py-4 text-right">Amount</th>
+                  <th className="px-6 py-4">Payment</th>
+                  <th className="px-6 py-4 text-right">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {transactions.map((t) => (
+                {visibleTransactions.map((t) => (
                   <tr key={t.id} className="hover:bg-zinc-800/50 transition-colors group">
-                    <td className="px-8 py-4 text-[10px] text-zinc-500 font-mono">
-                      {new Date(t.date).toLocaleString()}
-                    </td>
-                    <td className="px-8 py-4 font-bold text-white uppercase text-xs">
+                    <td className="px-6 py-4 text-[10px] text-zinc-500 font-mono whitespace-nowrap">{new Date(t.date).toLocaleString()}</td>
+                    <td className="px-6 py-4 font-bold text-white uppercase text-xs">
                       {t.productName}
+                      {t.type === 'restock' && <span className="ml-2 text-blue-500 text-[10px]">RESTOCK</span>}
                     </td>
-                    <td className="px-8 py-4">
-                      <span className={cn(
-                        "text-[10px] font-black uppercase flex items-center gap-1",
-                        t.type === 'sale' ? "text-green-500" : "text-blue-500"
-                      )}>
-                        {t.type === 'sale' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                        {t.type}
-                      </span>
+                    <td className="px-6 py-4 text-xs text-zinc-300 uppercase">{t.type === 'sale' ? (t.memberName || '—') : '—'}</td>
+                    <td className="px-6 py-4 text-right font-mono text-white">{t.quantity}</td>
+                    <td className={cn("px-6 py-4 text-right font-mono font-bold", t.type === 'sale' && !isSalePaid(t) ? "text-red-400" : "text-primary")}>
+                      {t.amount > 0 ? formatMoney(t.amount) : '—'}
                     </td>
-                    <td className="px-8 py-4 text-right font-mono text-white">{t.quantity}</td>
-                    <td className="px-8 py-4 text-right font-mono text-primary font-bold">
-                      {t.amount > 0 ? `$${t.amount.toFixed(2)}` : '—'}
-                    </td>
-                    <td className="px-8 py-4 text-right">
-                      <button 
-                        onClick={() => handleDeleteTransaction(t.id)}
-                        className="text-zinc-600 hover:text-red-500 transition-all md:opacity-0 md:group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
+                    <td className="px-6 py-4"><PaymentCell t={t} /></td>
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
+                      {t.type === 'sale' && !isSalePaid(t) && (
+                        <button onClick={() => { setMarkPaid(t); setMarkPaidMethod('cash'); }} className="bg-white text-black font-headline font-black text-[10px] uppercase px-3 py-1 mr-3 hover:bg-primary">Mark Paid</button>
+                      )}
+                      <button onClick={() => handleDeleteTransaction(t.id)} className="text-zinc-600 hover:text-red-500 transition-all md:opacity-0 md:group-hover:opacity-100">
+                        <Trash2 className="w-4 h-4 inline" />
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Mark Paid Modal */}
+      {markPaid && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="bg-zinc-900 border-t-8 border-primary p-8 max-w-md w-full">
+            <h3 className="font-headline font-black text-2xl text-white mb-1 uppercase tracking-tighter">Receive Payment</h3>
+            <p className="text-zinc-500 font-headline text-[10px] uppercase tracking-widest mb-6">
+              {markPaid.productName} ×{markPaid.quantity} · {markPaid.memberName} · {formatMoney(markPaid.amount)}
+            </p>
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-2">
+                {(['cash', 'card'] as const).map(m => (
+                  <button key={m} onClick={() => setMarkPaidMethod(m)}
+                    className={cn("py-3 font-headline font-black uppercase text-xs border-2",
+                      markPaidMethod === m ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500")}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-500 font-headline uppercase">Payment date will be recorded as today.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => setMarkPaid(null)} className="bg-zinc-800 text-white font-headline font-black py-4 uppercase text-xs hover:bg-zinc-700">Cancel</button>
+                <button onClick={handleMarkPaid} className="bg-primary text-black font-headline font-black py-4 uppercase text-xs hover:bg-white">Confirm Paid</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -670,10 +761,47 @@ export default function AdminShop() {
                 />
                 {transactionConfig.type === 'sale' && (
                   <p className="text-[10px] text-zinc-500 font-headline uppercase mt-1">
-                    Total Revenue: <span className="text-primary font-bold">${(transactionConfig.product.price * (transactionQty || 0)).toFixed(2)}</span>
+                    Total: <span className="text-primary font-bold">${(transactionConfig.product.price * (transactionQty || 0)).toFixed(2)}</span>
                   </p>
                 )}
               </div>
+
+              {transactionConfig.type === 'sale' && (
+                <>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Sold To</label>
+                    <input value={saleMemberSearch} onChange={(e) => { setSaleMemberSearch(e.target.value); setSaleMemberId(''); }}
+                      placeholder="Search member (empty = walk-in)" className="bg-black border-0 border-b-2 border-zinc-800 text-white font-headline font-bold focus:border-primary focus:ring-0 p-3" />
+                    {saleMemberSearch && !saleMemberId && (
+                      <div className="max-h-40 overflow-y-auto border border-zinc-800 divide-y divide-zinc-800">
+                        {members.filter(m => m.name.toLowerCase().includes(saleMemberSearch.toLowerCase()) || m.phone?.includes(saleMemberSearch)).slice(0, 8).map(m => (
+                          <button key={m.id} onClick={() => { setSaleMemberId(m.id); setSaleMemberSearch(m.name); }}
+                            className="w-full text-left px-3 py-2 font-headline text-xs uppercase text-white hover:bg-zinc-800">
+                            {m.name} {m.phone && <span className="text-zinc-500">· {m.phone}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-zinc-600 font-headline uppercase">
+                      {saleMemberId ? 'Member selected' : 'Walk-in customer'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] text-primary font-black font-headline uppercase tracking-widest">Payment</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([['cash', 'Cash'], ['card', 'Card'], ['later', 'Pay Later']] as const).map(([v, label]) => (
+                        <button key={v} onClick={() => setSalePayment(v)}
+                          disabled={v === 'later' && !saleMemberId}
+                          className={cn("py-3 font-headline font-black uppercase text-[10px] border-2 transition-all disabled:opacity-30",
+                            salePayment === v ? "bg-primary border-primary text-black" : "bg-black border-zinc-800 text-zinc-500")}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {!saleMemberId && <p className="text-[10px] text-zinc-600 font-headline uppercase">Pay later needs a member</p>}
+                  </div>
+                </>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <button 
@@ -747,5 +875,17 @@ export default function AdminShop() {
         </div>
       )}
     </Layout>
+  );
+}
+
+// Payment status for a history row: paid date + method, or "Not paid"
+function PaymentCell({ t }: { t: Transaction }) {
+  if (t.type !== 'sale') return <span className="text-zinc-600 text-[10px]">—</span>;
+  if (!isSalePaid(t)) return <span className="text-red-400 font-black text-[10px] uppercase">Not paid</span>;
+  return (
+    <span className="text-green-400 font-black text-[10px] uppercase flex items-center gap-1">
+      <CheckCircle2 className="w-3 h-3" />
+      Paid {new Date(salePaidAt(t)!).toLocaleDateString()}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
+    </span>
   );
 }

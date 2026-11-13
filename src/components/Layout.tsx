@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Dumbbell, Bell, Users, ShieldCheck, DollarSign, Newspaper, Home, Brain, Activity, ShoppingCart, Settings, User as UserIcon, LogOut, X, Phone, Trash2, Calendar as CalendarIcon, Trophy } from 'lucide-react';
+import { Dumbbell, Bell, Users, ShieldCheck, DollarSign, Newspaper, Home, Brain, Activity, ShoppingCart, Settings, User as UserIcon, LogOut, X, Phone, Trash2, Calendar as CalendarIcon, Trophy, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/AuthContext';
 import { auth, signOut, db, collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc, deleteDoc, OperationType, handleFirestoreError } from '@/firebase';
@@ -82,6 +82,7 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
     { name: 'PT Auth', path: '/admin/pt', icon: ShieldCheck },
     { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
     { name: 'Income', path: '/admin/shop', icon: DollarSign },
+    { name: 'Caisse', path: '/admin/caisse', icon: Wallet },
     { name: 'News', path: '/admin/news', icon: Newspaper },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
