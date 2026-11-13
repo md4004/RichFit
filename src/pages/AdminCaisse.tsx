@@ -120,7 +120,7 @@ export default function AdminCaisse() {
       </div>
 
       {/* Period totals */}
-      <div className="flex gap-2 mb-4 overflow-x-auto">
+      <div className="flex flex-wrap gap-2 mb-4">
         {([['today', 'Today'], ['week', 'Last 7 Days'], ['month', 'This Month'], ['all', 'All']] as const).map(([v, label]) => (
           <button key={v} onClick={() => setPeriod(v)}
             className={cn("px-4 py-2 font-headline font-black text-[10px] uppercase tracking-widest border-2 whitespace-nowrap",
