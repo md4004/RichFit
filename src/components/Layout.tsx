@@ -265,7 +265,7 @@ export default function Layout({ children, isAdmin: forceAdmin = false }: Layout
             key={item.name}
             to={item.path}
             className={cn(
-              "flex flex-col items-center justify-center p-1 flex-1 transition-colors",
+              "flex flex-col items-center justify-center p-1 flex-1 min-w-0 transition-colors",
               location.pathname === item.path ? "bg-primary text-black" : "text-white hover:bg-zinc-800"
             )}
           >

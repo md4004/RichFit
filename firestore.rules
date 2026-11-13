@@ -105,8 +105,14 @@ service cloud.firestore {
                      (request.auth.token.email != null && (request.auth.token.email.lower() == "michelsaloumi@gmail.com" || request.auth.token.email.lower() == "michelsaloumi0@gmail.com" || request.auth.token.email.lower() == "richfit@gmail.com"))) || isAdmin());
       
       // On update: users can update their own profile but cannot change their role unless they are admin
+      // Members may edit their own profile but never the admin-managed fields
+      // (role, membership dates, payment amounts, status)
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+                    ((isOwner(userId) &&
+                      !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                        'role', 'subscriptionEnd', 'subscriptionPrice', 'subscriptionPaid', 'lastPaymentAt',
+                        'status', 'terminatedAt', 'reactivatedAt'
+                      ])) || isAdmin());
       
       allow delete: if isAdmin();
     }

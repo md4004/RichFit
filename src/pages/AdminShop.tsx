@@ -334,7 +334,7 @@ export default function AdminShop() {
         </div>
         <div className="flex gap-4">
           <button 
-            onClick={() => setView(view === 'inventory' ? 'history' : 'inventory')}
+            onClick={() => { setView(view === 'inventory' ? 'history' : 'inventory'); setHistoryFilter('all'); }}
             className="bg-zinc-900 text-white font-black px-6 py-3 uppercase tracking-tighter font-headline text-sm flex items-center gap-2 active:scale-95 transition-all border border-zinc-800"
           >
             {view === 'inventory' ? <History className="w-4 h-4" /> : <Package className="w-4 h-4" />}
